@@ -1,0 +1,2 @@
+-- saved-query name: 19_gold_constraints
+-- paste the approved Databricks SQL for this task below

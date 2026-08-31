@@ -1,0 +1,2 @@
+-- saved-query name: 02_bronze_aisles
+-- paste the approved Databricks SQL for this task below

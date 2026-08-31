@@ -1,0 +1,2 @@
+-- saved-query name: 15_gold_dim_product
+-- paste the approved Databricks SQL for this task below

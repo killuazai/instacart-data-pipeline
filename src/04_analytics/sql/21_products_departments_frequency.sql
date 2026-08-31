@@ -1,0 +1,2 @@
+-- saved-query name: 21_products_departments_frequency
+-- paste the approved Databricks SQL for this task below

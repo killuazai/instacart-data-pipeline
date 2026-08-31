@@ -1,0 +1,2 @@
+-- saved-query name: 10_silver_departments
+-- paste the approved Databricks SQL for this task below

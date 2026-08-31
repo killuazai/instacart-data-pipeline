@@ -1,0 +1,2 @@
+-- saved-query name: 17_gold_fact_order_product
+-- paste the approved Databricks SQL for this task below

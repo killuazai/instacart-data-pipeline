@@ -1,0 +1,2 @@
+-- saved-query name: 18_validate_gold_pre_constraints
+-- paste the approved Databricks SQL for this task below

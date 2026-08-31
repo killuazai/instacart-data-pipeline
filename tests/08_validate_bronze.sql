@@ -1,0 +1,2 @@
+-- saved-query name: 08_validate_bronze
+-- paste the approved Databricks SQL for this task below

@@ -1,0 +1,2 @@
+-- saved-query name: 07_bronze_order_products_train
+-- paste the approved Databricks SQL for this task below

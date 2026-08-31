@@ -1,0 +1,54 @@
+instacart-data-pipeline/
+├── README.md
+├── CONTRIBUTING.md
+├── .gitignore
+├── .github/
+│   └── pull_request_template.md
+├── docs/
+│   ├── architecture.md
+│   ├── data_model.md
+│   ├── data_dictionary.md
+│   ├── decisions.md
+│   ├── validation.md
+│   ├── team_contributions.md
+│   ├── presentation_notes.md
+│   └── diagrams/
+├── src/
+│   ├── 00_setup/
+│   │   └── 01_setup.sql
+│   ├── 01_bronze/
+│   │   └── sql/
+│   │       ├── 02_bronze_aisles.sql
+│   │       ├── 03_bronze_departments.sql
+│   │       ├── 04_bronze_products.sql
+│   │       ├── 05_bronze_orders.sql
+│   │       ├── 06_bronze_order_products_prior.sql
+│   │       └── 07_bronze_order_products_train.sql
+│   ├── 02_silver/
+│   │   └── sql/
+│   │       ├── 09_silver_aisles.sql
+│   │       ├── 10_silver_departments.sql
+│   │       ├── 11_silver_products.sql
+│   │       ├── 12_silver_orders.sql
+│   │       └── 13_silver_order_products.sql
+│   ├── 03_gold/
+│   │   └── sql/
+│   │       ├── 15_gold_dim_product.sql
+│   │       ├── 16_gold_dim_order.sql
+│   │       ├── 17_gold_fact_order_product.sql
+│   │       └── 19_gold_constraints.sql
+│   └── 04_analytics/
+│       └── sql/
+│           ├── 21_products_departments_frequency.sql
+│           ├── 22_customer_behavior_day_hour.sql
+│           └── 23_product_reorder_behavior.sql
+├── tests/
+│   ├── 08_validate_bronze.sql
+│   ├── 14_validate_silver.sql
+│   ├── 18_validate_gold_pre_constraints.sql
+│   └── 20_validate_gold_final.sql
+├── dashboards/
+│   ├── README.md
+│   └── screenshots/
+└── notebooks/
+    └── README.md
