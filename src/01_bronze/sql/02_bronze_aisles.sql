@@ -11,7 +11,7 @@ SELECT
   aisle,
   _rescued_data
 FROM read_files(
-  '/Volumes/workspace/default/ftw-b12-de/shared/week06/instacart_csv/aisles.csv',
+  '/Volumes/workspace/default/ftw_b12_de/shared/week06/instacart_csv/aisles.csv',
   format => 'csv',
   header => true,
   schema => 'aisle_id INT, aisle STRING',
