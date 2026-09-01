@@ -19,7 +19,7 @@ WITH expected_files AS (
 actual_files AS (
   SELECT regexp_extract(path, '([^/]+)$', 1) AS file_name
   FROM read_files(
-    '/Volumes/workspace/default/ftw-b12-de/shared/week06/instacart_csv/*.csv',
+    '/Volumes/workspace/default/ftw_b12_de/shared/week06/instacart_csv/*.csv',
     format => 'binaryFile'
   )
 ),
