@@ -1,5 +1,5 @@
 -- ============================================================
--- 6. ORDERS - BRONZE VALIDATION
+-- 5. ORDERS - BRONZE VALIDATION
 -- Owner: Angela
 -- Table: workspace.instacart_bronze.orders_raw
 -- Grain: One row = one order placed by one user.
