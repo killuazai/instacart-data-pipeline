@@ -5,7 +5,7 @@ SELECT
   COUNT(*) AS row_count,
   COUNT_IF(aisle_id IS NULL) AS null_required_ids,
   COUNT_IF(_rescued_data IS NOT NULL) AS rescued_rows
-FROM workspace.instacart_bronze.aisles
+FROM workspace.default.aisles
 
 UNION ALL
 
@@ -14,7 +14,7 @@ SELECT
   COUNT(*),
   COUNT_IF(department_id IS NULL),
   COUNT_IF(_rescued_data IS NOT NULL)
-FROM workspace.instacart_bronze.departments
+FROM workspace.default.departments
 
 UNION ALL
 
@@ -27,7 +27,7 @@ SELECT
     OR department_id IS NULL
   ),
   COUNT_IF(_rescued_data IS NOT NULL)
-FROM workspace.instacart_bronze.products
+FROM workspace.default.products
 
 UNION ALL
 
@@ -39,7 +39,7 @@ SELECT
     OR user_id IS NULL
   ),
   COUNT_IF(_rescued_data IS NOT NULL)
-FROM workspace.instacart_bronze.orders
+FROM workspace.default.orders
 
 UNION ALL
 
@@ -52,7 +52,7 @@ SELECT
     OR add_to_cart_order IS NULL
   ),
   COUNT_IF(_rescued_data IS NOT NULL)
-FROM workspace.instacart_bronze.order_products_prior
+FROM workspace.default.order_products_prior
 
 UNION ALL
 
@@ -65,6 +65,6 @@ SELECT
     OR add_to_cart_order IS NULL
   ),
   COUNT_IF(_rescued_data IS NOT NULL)
-FROM workspace.instacart_bronze.order_products_train
+FROM workspace.default.order_products_train
 
 ORDER BY null_required_ids DESC, rescued_rows DESC;
