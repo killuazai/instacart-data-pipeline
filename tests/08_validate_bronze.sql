@@ -1,3 +1,73 @@
+-- ============================================================
+-- 6. ORDERS - BRONZE VALIDATION
+-- Owner: Angela
+-- Table: workspace.instacart_bronze.orders_raw
+-- Grain: One row = one order placed by one user.
+-- ============================================================
+
+SELECT
+    COUNT(*) AS total_rows,
+
+    -- Key checks: null and duplicate ids
+    SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) AS null_order_ids,
+    COUNT(*) - COUNT(DISTINCT order_id) AS duplicate_order_ids,
+    SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) AS null_user_ids,
+
+    -- eval_set profiling
+    SUM(CASE WHEN eval_set IS NULL THEN 1 ELSE 0 END) AS null_eval_set,
+    COUNT(DISTINCT eval_set) AS distinct_eval_set_count,
+    SORT_ARRAY(COLLECT_SET(eval_set)) AS possible_eval_set_values,
+
+    -- Order number should be positive
+    SUM(
+        CASE
+            WHEN order_number IS NULL
+              OR order_number <= 0
+            THEN 1
+            ELSE 0
+        END
+    ) AS invalid_order_number,
+
+    -- Day of week profiling
+    SUM(CASE WHEN order_dow IS NULL THEN 1 ELSE 0 END) AS null_order_dow,
+    COUNT(DISTINCT order_dow) AS distinct_order_dow_count,
+    SORT_ARRAY(COLLECT_SET(order_dow)) AS possible_order_dow_values,
+
+    -- Order hour profiling
+    SUM(CASE WHEN order_hour_of_day IS NULL THEN 1 ELSE 0 END) AS null_order_hour,
+    COUNT(DISTINCT order_hour_of_day) AS distinct_order_hour_count,
+    SORT_ARRAY(COLLECT_SET(order_hour_of_day)) AS possible_order_hour_values,
+
+    -- First orders should not have a previous order interval
+    SUM(
+        CASE
+            WHEN order_number = 1
+             AND days_since_prior_order IS NOT NULL
+            THEN 1
+            ELSE 0
+        END
+    ) AS first_orders_with_prior_days,
+
+    -- Later orders should normally have a previous order interval
+    SUM(
+        CASE
+            WHEN order_number > 1
+             AND days_since_prior_order IS NULL
+            THEN 1
+            ELSE 0
+        END
+    ) AS later_orders_missing_prior_days,
+
+    -- Values should not be negative
+    SUM(
+        CASE
+            WHEN days_since_prior_order < 0
+            THEN 1
+            ELSE 0
+        END
+    ) AS negative_days_since_prior_order
+
+FROM workspace.instacart_bronze.orders_raw;
 
 -- ============================================================
 -- 6. ORDER PRODUCTS TRAIN - BRONZE VALIDATION
