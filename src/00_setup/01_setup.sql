@@ -3,8 +3,6 @@
 -- creates the required schemas and confirms that the source folder contains exactly the six approved csv files
 
 CREATE SCHEMA IF NOT EXISTS workspace.default;
-CREATE SCHEMA IF NOT EXISTS workspace.default;
-CREATE SCHEMA IF NOT EXISTS workspace.default;
 
 WITH expected_files AS (
   SELECT explode(array(
