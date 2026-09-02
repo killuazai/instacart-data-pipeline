@@ -169,7 +169,7 @@ Add dashboard details and screenshots in `dashboards/`.
 |-------|----------------|-------------------|
 | **Bronze** | ~2 minutes | 37,273,878 rows |
 | **Silver** | ~3 minutes | 37,198,877 rows (75K filtered) |
-| **Gold** | ~5 minutes | 33,819,103 fact + 3.6M dimensions |
+| **Gold** | ~5 minutes | 33,819,103 fact + 3.4M dimension rows |
 | **Analytics** | < 1 second | Pre-aggregated queries |
 | **End-to-End** | ~10 minutes | Full pipeline |
 
@@ -196,7 +196,7 @@ order_products_     → bronze_order_products_train  →   (union with prior)   
 
 **Key Transformations**:
 * **Bronze → Silver**: Type conversions (STRING → INT), NULL filtering, union prior + train
-* **Silver → Gold**: Denormalization, surrogate keys, calculated fields, pre-aggregations
+* **Silver → Gold**: Denormalization, join enrichment (product hierarchy, order attributes)
 
 ---
 
@@ -234,7 +234,7 @@ order_products_     → bronze_order_products_train  →   (union with prior)   
 
 ### Phase 2 (Planned)
 * [ ] Add `dim_date` dimension with fiscal calendar attributes
-* [ ] Add `dim_customer` dimension with lifetime metrics
+* [ ] Enhance `dim_order` with additional customer lifetime metrics or split into separate `dim_customer` table
 * [ ] Implement SCD Type 2 for product price history tracking
 * [ ] Create daily/monthly aggregate fact tables
 * [ ] Add data quality monitoring dashboard
@@ -284,10 +284,11 @@ order_products_     → bronze_order_products_train  →   (union with prior)   
 * **Impact**: Analytics tables ready (tasks 21-23), visualization layer pending
 * **Owner**: TBD in `docs/team_contributions.md`
 
-**Customer Dimension**  
-* **Status**: Not yet implemented
-* **Reason**: Scoped for Phase 2 to keep initial model simple
-* **Workaround**: Customer metrics calculated in analytics layer (task 22)
+**Separate Customer Dimension**  
+* **Status**: Not implemented - customer attributes are embedded in `dim_order`
+* **Reason**: Simplified star schema for initial implementation
+* **Current Design**: Customer ID and order sequence live in `dim_order`
+* **Future**: May be split into dedicated `dim_customer` in Phase 2
 
 ### Technical Constraints
 

@@ -305,7 +305,7 @@ Pre-aggregated tables optimized for dashboard consumption.
 | `product_name` | STRING | Product name | Dimension |
 | `product_id` | INT | Product identifier | Dimension |
 | `total_orders` | BIGINT | Total number of orders containing this product | Metric |
-| `unique_customers` | BIGINT | COUNT(DISTINCT customer_key) | Metric |
+| `unique_customers` | BIGINT | COUNT(DISTINCT user_id) from orders | Metric |
 | `reorder_rate_pct` | DECIMAL(27,2) | Percentage of purchases that are reorders | Metric |
 | `avg_products_per_order` | DOUBLE | [TO CONFIRM — not visible in sample] | Metric |
 
@@ -328,7 +328,7 @@ Pre-aggregated tables optimized for dashboard consumption.
 | `total_orders` | BIGINT | COUNT(DISTINCT order_key) | Metric |
 | `total_items` | BIGINT | COUNT(*) of order items | Metric |
 | `avg_items_per_order` | DOUBLE | total_items / total_orders | Metric |
-| `unique_customers` | BIGINT | COUNT(DISTINCT customer_key) | Metric |
+| `unique_customers` | BIGINT | COUNT(DISTINCT user_id) from orders | Metric |
 
 **Use Case**: Heatmap visualization for order patterns
 
@@ -347,10 +347,10 @@ Pre-aggregated tables optimized for dashboard consumption.
 | `product_name` | STRING | Product name | Dimension |
 | `product_id` | INT | Product identifier | Dimension |
 | `total_purchases` | BIGINT | Total number of purchases (order line items) | Metric |
-| `reorder_count` | BIGINT | SUM(is_reordered) | Metric |
+| `reorder_count` | BIGINT | SUM(reordered) | Metric |
 | `first_time_purchase_count` | BIGINT | total_purchases - reorder_count | Metric |
 | `reorder_rate_pct` | DECIMAL(27,2) | (reorder_count / total_purchases) × 100 | Metric |
-| `unique_customers` | BIGINT | COUNT(DISTINCT customer_key) | Metric |
+| `unique_customers` | BIGINT | COUNT(DISTINCT user_id) from orders | Metric |
 | `reorder_rank` | INT | RANK by reorder_rate (NULL if < 100 purchases) | Derived Metric |
 
 **Filters**: Minimum 10 purchases per product; reorder_rank computed only for products with ≥ 100 purchases
@@ -371,7 +371,7 @@ Pre-aggregated tables optimized for dashboard consumption.
 | `product_2` | STRING | Second product name | Dimension |
 | `product_2_id` | INT | Second product identifier | Dimension |
 | `product_2_department` | STRING | Second product department | Dimension |
-| `orders_with_both` | BIGINT | COUNT(DISTINCT order_key) where both products appear | Metric |
+| `orders_with_both` | BIGINT | COUNT(DISTINCT order_id) where both products appear | Metric |
 | `customers_buying_both` | BIGINT | COUNT(DISTINCT customer_key) | Metric |
 | `pair_frequency_pct` | DECIMAL(31,4) | (orders_with_both / total_orders) × 100 | Metric |
 
@@ -395,14 +395,14 @@ Pre-aggregated tables optimized for dashboard consumption.
 ### Silver to Gold
 
 * **Orphan Products**: 3 products in silver_order_products do not exist in silver_products (documented data quality issue)
-* **Dropped Rows**: 3 rows from fact_order_items (orphan products filtered)
+* **Dropped Rows**: 3 rows from fact_order_product (orphan products filtered)
 
 ### Validation Results
 
 * **NULL Checks**: 0 NULLs in required fields (Silver layer)
 * **Primary Key Uniqueness**: 0 duplicates in all tables
 * **Referential Integrity**: 0 orphans in Gold dimensional model (orphan products removed)
-* **Fact Table Grain**: 0 duplicates at (order_key, product_key) level
+* **Fact Table Grain**: 0 duplicates at (order_id, product_id, add_to_cart_order) level
 
 ---
 

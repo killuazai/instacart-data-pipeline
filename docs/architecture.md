@@ -333,50 +333,50 @@ Pre-aggregated tables optimized for dashboard consumption.
 
 #### `gold_product_popularity`
 
-* **Source**: fact_order_items + dim_products
-* **Row Count**: 49,684 (3 products excluded due to low volume)
+* **Source**: fact_order_product + dim_product
+* **Row Count**: 49,684
 * **Grain**: One row per product
 * **Purpose**: Answer BQ1 — Which products and departments are purchased most frequently?
 * **Metrics**:
   * total_orders: COUNT(*)
-  * unique_customers: COUNT(DISTINCT customer_key)
+  * unique_customers: COUNT(DISTINCT user_id) from orders
   * reorder_rate_pct: % of purchases that are reorders
   * avg_products_per_order: Average basket size
 
 #### `gold_temporal_patterns`
 
-* **Source**: fact_order_items + dim_orders
+* **Source**: fact_order_product + dim_order
 * **Row Count**: 168 (7 days × 24 hours)
 * **Grain**: One row per day-of-week + hour-of-day combination
 * **Purpose**: Answer BQ2 — How does purchasing behavior change by day and hour?
 * **Metrics**:
-  * total_orders: COUNT(DISTINCT order_key)
+  * total_orders: COUNT(DISTINCT order_id)
   * total_items: COUNT(*)
   * avg_items_per_order: total_items / total_orders
-  * unique_customers: COUNT(DISTINCT customer_key)
+  * unique_customers: COUNT(DISTINCT user_id) from orders
 
 #### `gold_reorder_behavior`
 
-* **Source**: fact_order_items + dim_products
+* **Source**: fact_order_product + dim_product
 * **Row Count**: 42,987 (products with ≥ 10 purchases)
 * **Grain**: One row per product
 * **Purpose**: Answer BQ3 — Which products have the highest reorder behavior?
 * **Metrics**:
   * total_purchases: COUNT(*)
-  * reorder_count: SUM(is_reordered)
+  * reorder_count: SUM(reordered)
   * first_time_purchase_count: total_purchases - reorder_count
   * reorder_rate_pct: (reorder_count / total_purchases) × 100
   * reorder_rank: RANK by reorder_rate (for products with ≥ 100 purchases)
-  * unique_customers: COUNT(DISTINCT customer_key)
+  * unique_customers: COUNT(DISTINCT user_id) from orders
 
 #### `gold_basket_pairs`
 
-* **Source**: fact_order_items self-join + dim_products
+* **Source**: fact_order_product self-join + dim_product
 * **Row Count**: 1,000 (top 1,000 pairs)
 * **Grain**: One row per product pair (A, B where A < B)
 * **Purpose**: Answer BQ4 — What are the most common product pairs purchased together?
 * **Metrics**:
-  * orders_with_both: COUNT(DISTINCT order_key)
+  * orders_with_both: COUNT(DISTINCT order_id)
   * customers_buying_both: COUNT(DISTINCT customer_key)
   * pair_frequency_pct: % of orders containing both products
 * **Threshold**: Minimum 100 co-occurrences
@@ -386,10 +386,9 @@ Pre-aggregated tables optimized for dashboard consumption.
 **Data Quality Checks** (implemented by Cath):
 
 1. **Row Counts**:
-   * dim_products: 49,687
-   * dim_customers: 206,209
-   * dim_orders: 3,346,083
-   * fact_order_items: 33,819,103
+   * dim_product: 49,687
+   * dim_order: 3,346,083
+   * fact_order_product: 33,819,103
    * gold_product_popularity: 49,684
    * gold_temporal_patterns: 168
    * gold_reorder_behavior: 42,987
@@ -397,7 +396,7 @@ Pre-aggregated tables optimized for dashboard consumption.
 
 2. **Fact-to-Dimension Relationships**: 0 orphans in all foreign keys
 
-3. **Fact Table Grain**: 0 duplicates at (order_key, product_key) level
+3. **Fact Table Grain**: 0 duplicates at (order_id, product_id, add_to_cart_order) level
 
 4. **Silver to Gold Reconciliation**: 3-row difference due to orphan products filtered
 
@@ -411,7 +410,7 @@ The Business Analytics Dashboard is the consumption layer built on top of Gold t
 
 ### Dashboard Data Sources
 
-* **Dimensional Model**: fact_order_items + dimension tables for flexible ad-hoc queries
+* **Dimensional Model**: fact_order_product + dimension tables (dim_product, dim_order) for flexible ad-hoc queries
 * **Pre-aggregated Tables**: gold_product_popularity, gold_temporal_patterns, gold_reorder_behavior, gold_basket_pairs for performance
 
 ### Dashboard Capabilities
