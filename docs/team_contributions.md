@@ -437,32 +437,6 @@ Nadine (Bronze) → Ina (Silver) → Cath (Gold) → Maeve (Dashboard)
 
 ## Skills Summary by Team Member
 
-### Data Engineering Skills
-
-| Skill | Nadine | Ina | Cath | Maeve | Angela | Tina |
-|-------|--------|-----|------|-------|--------|------|
-| SQL DDL/DML | ✅ | ✅ | ✅ | ✅ | | |
-| Data Ingestion | ✅ | | | | | |
-| Data Cleaning | | ✅ | | | | |
-| Data Validation | ✅ | ✅ | ✅ | | | |
-| Dimensional Modeling | | | ✅ | | | ✅ |
-| Star Schema Design | | | ✅ | | | ✅ |
-| Pre-Aggregation | | | ✅ | | | |
-| Dashboard Development | | | | ✅ | | |
-| Technical Writing | | | | | | ✅ |
-| Git/GitHub | | | | | ✅ | |
-
-### Business Skills
-
-| Skill | Nadine | Ina | Cath | Maeve | Angela | Tina |
-|-------|--------|-----|------|-------|--------|------|
-| Requirements Analysis | | | | ✅ | | ✅ |
-| Business Intelligence | | | | ✅ | | |
-| Data Quality Management | ✅ | ✅ | ✅ | | | |
-| Documentation | ✅ | ✅ | ✅ | | | ✅ |
-| Project Organization | | | | | ✅ | |
-
----
 
 ## Lessons Learned
 
