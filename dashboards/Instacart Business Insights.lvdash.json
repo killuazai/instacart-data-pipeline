@@ -638,7 +638,7 @@
               "frame": {
                 "showTitle": true,
                 "title": {
-                  "value": "REORDER RATE",
+                  "value": "Reorder Rate",
                   "fields": []
                 }
               },
