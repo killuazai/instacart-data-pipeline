@@ -7,7 +7,7 @@
 CREATE OR REPLACE TABLE products_clean AS
 SELECT
     p.product_id,
-    TRIM(REPLACE(p.product_name, CHR(92), '')) AS product_name,
+    TRIM(REPLACE(p.product_name, CHR(92), '')) AS product_name, -- CHR(92) represents the backslash character: \
     p.aisle_id,
     p.department_id
 FROM instacart_bronze.products p
