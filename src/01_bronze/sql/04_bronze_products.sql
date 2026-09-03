@@ -3,6 +3,9 @@
 -- Purpose: Load Instacart product records into the Bronze Delta table using an explicit schema and correct quotation-mark parsing while retaining rescued data.
 -- Grain: One row per product, uniquely identified by product_id.
 
+USE CATALOG workspace;
+USE SCHEMA instacart_bronze;
+
 CREATE OR REPLACE TABLE workspace.instacart_bronze.products
 USING DELTA
 COMMENT 'bronze copy of the instacart products csv'

@@ -3,20 +3,13 @@
 -- Purpose: Load Instacart order records into the Bronze Delta table using an explicit schema while retaining rescued data.
 -- Grain: One row per Instacart order, uniquely identified by order_id.
 
-CREATE TABLE IF NOT EXISTS workspace.instacart_bronze.orders (
-  order_id INT,
-  user_id INT,
-  eval_set STRING,
-  order_number INT,
-  order_dow INT,
-  order_hour_of_day INT,
-  days_since_prior_order DOUBLE,
-  _rescued_data STRING
-)
-USING DELTA
-COMMENT 'bronze copy of the instacart orders csv';
+USE CATALOG workspace;
+USE SCHEMA instacart_bronze;
 
-INSERT OVERWRITE TABLE workspace.instacart_bronze.orders
+CREATE OR REPLACE TABLE orders 
+USING DELTA
+COMMENT 'bronze copy of the instacart orders csv'
+AS
 SELECT
   order_id,
   user_id,

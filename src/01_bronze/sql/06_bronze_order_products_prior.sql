@@ -3,17 +3,13 @@
 -- Purpose: Load prior order-product CSV records into the Bronze Delta table using an explicit schema while retaining rescued data.
 -- Grain: One row per product line in one prior order, uniquely identified by (order_id, add_to_cart_order).
 
-CREATE TABLE IF NOT EXISTS workspace.instacart_bronze.order_products_prior (
-  order_id INT,
-  product_id INT,
-  add_to_cart_order INT,
-  reordered INT,
-  _rescued_data STRING
-)
-USING DELTA
-COMMENT 'bronze copy of the instacart prior order products csv';
+USE CATALOG workspace;
+USE SCHEMA instacart_bronze;
 
-INSERT OVERWRITE TABLE workspace.instacart_bronze.order_products_prior
+CREATE OR REPLACE TABLE order_products_prior 
+USING DELTA
+COMMENT 'bronze copy of the instacart prior order products csv'
+AS
 SELECT
   order_id,
   product_id,
