@@ -1,11 +1,13 @@
+%sql
 -- Owner: Nadine
 -- Name: 01 - Setup
--- Purpose: Create the Bronze, Silver, and Gold schemas and validate that the source folder contains exactly the six approved Instacart CSV files.
+-- Purpose: Create the Bronze, Silver, Gold, and Analytics schemas and validate the six approved Instacart source CSV files.
 -- Grain: One validation summary row for the Instacart source folder.
 
 CREATE SCHEMA IF NOT EXISTS workspace.instacart_bronze;
 CREATE SCHEMA IF NOT EXISTS workspace.instacart_silver;
 CREATE SCHEMA IF NOT EXISTS workspace.instacart_gold;
+CREATE SCHEMA IF NOT EXISTS workspace.instacart_analytics;
 
 WITH expected_files AS (
   SELECT explode(

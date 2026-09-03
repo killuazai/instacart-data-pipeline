@@ -1,5 +1,5 @@
 -- Owner: Cath
--- Name: 18_validate_gold_pre_constraints.sql
+-- Name: 18 - Validate Gold Pre-constraints
 -- Purpose: Validate dimension tables before building the fact table.
 -- Grain: One validation summary row per dimension table.
 

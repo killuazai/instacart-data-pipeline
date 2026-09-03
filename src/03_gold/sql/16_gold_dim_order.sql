@@ -1,5 +1,5 @@
 -- Owner: Cath
--- Name: 16_gold_dim_order.sql
+-- Name: 16 - Gold Dim Order
 -- Purpose: Build an order dimension with customer and time attributes.
 -- Grain: One row per order, uniquely identified by order_id.
 

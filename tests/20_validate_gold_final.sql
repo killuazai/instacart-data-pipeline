@@ -1,5 +1,5 @@
 -- Owner: Cath
--- Name: 20_validate_gold_final.sql
+-- Name: 20 - Validate Gold Final
 -- Purpose: Comprehensive gold validation - keys, integrity, silver-to-gold reconciliation, and measures.
 -- Grain: Two result sets - (1) table-level validation, (2) measure reconciliation.
 
