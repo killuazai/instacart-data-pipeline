@@ -6,32 +6,53 @@ Thank you for contributing to the Instacart data pipeline. This guide keeps chan
 
 Use the following collaboration flow:
 
-`PULL -> BRANCH -> CHANGE -> VALIDATE -> COMMIT -> PUSH -> PULL REQUEST -> REVIEW -> MERGE`
+`ISSUE -> ASSIGN OWNER -> PULL -> BRANCH -> CHANGE -> VALIDATE -> PULL REQUEST -> REVIEW -> REVISE -> APPROVE -> MERGE`
 
 Do not create permanent folders for individual contributors. Organize work by pipeline layer or deliverable so the repository remains understandable after the project is handed off.
 
+## Issue and Reviewer Workflow
+
+Every task should begin with a GitHub issue created by the reviewer. The issue is the shared record of the requested work, its scope, and the result expected from the branch owner.
+
+1. The reviewer opens an issue describing the problem or requested improvement.
+2. The reviewer includes the affected pipeline layer or files, acceptance criteria, and any validation that must pass.
+3. The issue is assigned to the team member who will own the working branch.
+4. The branch owner creates a focused branch for that issue and completes the requested task.
+5. The branch owner opens a pull request, links the issue, and summarizes the implementation and validation results.
+6. The reviewer checks the pull request and leaves suggestions, questions, or required changes as review comments.
+7. The branch owner addresses every reviewer comment by updating the branch or explaining the decision when a change is not appropriate.
+8. After revisions are pushed, the branch owner replies to the relevant comments and requests another review.
+9. The reviewer confirms that the issue's acceptance criteria and requested changes have been satisfied before approving the pull request.
+10. The pull request is merged only after reviewer approval. The linked issue is then closed, preferably through a pull request keyword such as `Closes #42`.
+
+Reviewer comments are part of the task, not optional notes. The branch owner should follow actionable suggestions, ask for clarification when a comment is unclear, and avoid resolving a conversation until the feedback has been addressed.
+
 ## Before Starting
 
-1. Pull the latest `main` branch.
-2. Review [README.md](README.md) for the current architecture and execution order.
-3. Check [REPO_TREE.txt](REPO_TREE.txt) to locate the canonical notebook and its matching source or test file.
-4. Create a focused branch for one logical change.
-5. Confirm which downstream layers, tests, documentation, and dashboard datasets may be affected.
+1. Read the assigned GitHub issue and confirm its acceptance criteria.
+2. Ask the reviewer to clarify any missing or ambiguous requirement before implementation.
+3. Pull the latest `main` branch.
+4. Review [README.md](README.md) for the current architecture and execution order.
+5. Check [REPO_TREE.txt](REPO_TREE.txt) to locate the canonical notebook and its matching source or test file.
+6. Create a focused branch for the assigned issue.
+7. Confirm which downstream layers, tests, documentation, and dashboard datasets may be affected.
 
 ## Branch Naming
 
 Use a short lowercase branch name with hyphens.
 
+Include the GitHub issue number when possible so the branch is easy to trace back to its assignment.
+
 Examples:
 
-- `feature/bronze-products`
-- `feature/silver-orders`
-- `feature/gold-model`
-- `feature/analytics-product-pairs`
-- `fix/silver-schema-context`
-- `test/gold-reconciliation`
-- `docs/data-model`
-- `dashboard/reorder-view`
+- `feature/42-bronze-products`
+- `feature/43-silver-orders`
+- `feature/44-gold-model`
+- `feature/45-analytics-product-pairs`
+- `fix/46-silver-schema-context`
+- `test/47-gold-reconciliation`
+- `docs/48-data-model`
+- `dashboard/49-reorder-view`
 
 ## Canonical Pipeline Order
 
@@ -153,12 +174,13 @@ Keep each pull request focused on one logical contribution where possible. Good 
 
 Include the following information in the pull request description:
 
-1. What changed and why.
-2. Which pipeline layers or objects are affected.
-3. How the change was tested.
-4. The observed validation results.
-5. Any documented row-count differences or known limitations.
-6. Screenshots for dashboard changes, when useful.
+1. The linked GitHub issue, using `Closes #<issue-number>` when the pull request fully resolves it.
+2. What changed and why.
+3. Which pipeline layers or objects are affected.
+4. How the change was tested.
+5. The observed validation results.
+6. Any documented row-count differences or known limitations.
+7. Screenshots for dashboard changes, when useful.
 
 ## Review Checklist
 
