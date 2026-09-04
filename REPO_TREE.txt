@@ -1,18 +1,24 @@
 instacart-data-pipeline/
 ├── README.md
 ├── CONTRIBUTING.md
-├── .gitignore
-├── .github/
-│   └── pull_request_template.md
+├── REPO_TREE.txt
+├── Instacart Customer & Purchase Analytics.lvdash.json
+├── dashboards/
+│   ├── README.md
+│   └── Instacart Business Insights.lvdash.json
 ├── docs/
 │   ├── architecture.md
-│   ├── data_model.md
 │   ├── data_dictionary.md
+│   ├── data_model.md
 │   ├── decisions.md
-│   ├── validation.md
-│   ├── team_contributions.md
 │   ├── presentation_notes.md
-│   └── diagrams/
+│   ├── team_contributions.md
+│   └── validation.md
+├── notebooks/
+│   ├── 01_bronze_instacart_notebook.ipynb
+│   ├── 02_silver_instacart_notebook.ipynb
+│   ├── 03_gold_instacart_notebook.ipynb
+│   └── 04_analytics_instacart_notebook.ipynb
 ├── src/
 │   ├── 00_setup/
 │   │   └── 01_setup.sql
@@ -37,18 +43,32 @@ instacart-data-pipeline/
 │   │       ├── 16_gold_dim_order.sql
 │   │       ├── 17_gold_fact_order_product.sql
 │   │       └── 19_gold_constraints.sql
-│   └── 04_analytics/
-│       └── sql/
-│           ├── 21_products_departments_frequency.sql
-│           ├── 22_customer_behavior_day_hour.sql
-│           └── 23_product_reorder_behavior.sql
-├── tests/
-│   ├── 08_validate_bronze.sql
-│   ├── 14_validate_silver.sql
-│   ├── 18_validate_gold_pre_constraints.sql
-│   └── 20_validate_gold_final.sql
-├── dashboards/
-│   ├── README.md
-│   └── screenshots/
-└── notebooks/
-    └── README.md
+│   ├── 04_analytics/
+│   │   └── sql/
+│   │       ├── 21_products_departments_frequency.sql
+│   │       ├── 22_customer_behavior_day_hour.sql
+│   │       ├── 23_product_reorder_behavior.sql
+│   │       └── 24_product_most_often_bought_together.dbquery.ipynb
+│   └── Instacart Star Schema with Constraints.ipynb
+└── tests/
+    ├── 08_validate_bronze.sql
+    ├── 14_validate_silver.sql
+    ├── 18_validate_gold_pre_constraints.sql
+    ├── 20a_validate_gold_final.sql
+    ├── 20b_gold_final_validation.dbquery.ipynb
+    └── 25_validate_analytics.sql.dbquery.ipynb
+
+Canonical execution path:
+  notebooks/01_bronze_instacart_notebook.ipynb
+  notebooks/02_silver_instacart_notebook.ipynb
+  notebooks/03_gold_instacart_notebook.ipynb
+  notebooks/04_analytics_instacart_notebook.ipynb
+
+Notes:
+  - src/ contains reviewable or reusable versions of individual pipeline tasks.
+  - tests/ contains the extracted layer-validation and reconciliation tasks.
+  - dashboards/Instacart Business Insights.lvdash.json is aligned with the current
+    workspace.instacart_analytics tables and is the canonical dashboard export.
+  - The root-level Instacart Customer & Purchase Analytics.lvdash.json and
+    src/Instacart Star Schema with Constraints.ipynb reference an earlier or
+    alternative model and are not part of the four-notebook execution path.
