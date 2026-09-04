@@ -1,6 +1,6 @@
 # Data Dictionary
 
-**Instacart Data Engineering Pipeline — Complete Column Catalog**
+**Instacart Pipeline**
 
 This data dictionary provides detailed schema information for all tables across the Bronze, Silver, and Gold layers.
 
@@ -22,7 +22,7 @@ This data dictionary provides detailed schema information for all tables across 
 
 ## BRONZE LAYER
 
-**Catalog/Schema**: `workspace.default`
+**Catalog/Schema**: `workspace.instacart_bronze`
 
 **Purpose**: Raw ingestion from CSV files with minimal transformation
 
@@ -62,8 +62,8 @@ This data dictionary provides detailed schema information for all tables across 
 |--------|-----------|----------|----|----|-------------|
 | product_id | INT | No | ✓ | | Unique product identifier |
 | product_name | STRING | Yes | | | Product name |
-| aisle_id | STRING | Yes | | | **Data Quality Issue**: Should be INT (fixed in Silver) |
-| department_id | STRING | Yes | | | **Data Quality Issue**: Should be INT (fixed in Silver) |
+| aisle_id | INT | Yes | | | Aisle identifier |
+| department_id | INT | Yes | | | Department identifier |
 | _rescued_data | STRING | Yes | | | Malformed CSV records (all NULL) |
 
 ### bronze_orders
@@ -111,11 +111,42 @@ This data dictionary provides detailed schema information for all tables across 
 | reordered | INT | Yes | | | Binary: 1 = reorder, 0 = first purchase |
 | _rescued_data | STRING | Yes | | | Malformed CSV records (all NULL) |
 
+### bronze_validation
+
+**Source**: Validation query across all Bronze tables  
+**Row Count**: 6 (one per Bronze table)  
+**Grain**: One validation summary row per Bronze table
+
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| table_name | STRING | No | | | Bronze table being validated |
+| expected_rows | INT | No | | | Expected row count from approved snapshot |
+| actual_rows | BIGINT | No | | | Actual row count in Bronze table |
+| row_difference | BIGINT | No | | | actual_rows - expected_rows (must be 0 for PASS) |
+| null_required_ids | BIGINT | No | | | Count of rows with NULL in required ID columns |
+| duplicate_primary_keys | BIGINT | No | | | Count of duplicate primary key values |
+| duplicate_alternate_keys | BIGINT | No | | | Count of duplicate alternate key values |
+| required_field_issues | BIGINT | No | | | Count of NULL or empty required fields |
+| domain_issues | BIGINT | No | | | Count of out-of-range or invalid domain values |
+| rescued_rows | BIGINT | No | | | Count of rows with non-NULL _rescued_data |
+| status | STRING | No | | | 'PASS' if all checks = 0, otherwise 'FAIL' |
+| bronze_validation_check | VOID | Yes | | | assert_true result (raises error on any FAIL) |
+
+**Validation Rules**:
+* Row counts must exactly match expected snapshot counts
+* All required identifiers must be non-NULL
+* Primary and alternate keys must be unique
+* Required fields must be populated
+* Domain values must fall within valid ranges
+* No rescued data should remain (all _rescued_data must be NULL)
+
+**Expected Result**: All 6 tables show status = 'PASS'
+
 ---
 
 ## SILVER LAYER
 
-**Catalog/Schema**: `workspace.default`
+**Catalog/Schema**: `workspace.instacart_silver`
 
 **Purpose**: Cleaned, standardized, and validated data
 
@@ -164,8 +195,8 @@ This data dictionary provides detailed schema information for all tables across 
 | loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
 **Transformation Notes**:
-* `aisle_id` and `department_id` CAST from STRING → INT
 * 1 row dropped due to NULL filtering
+* Backslash artifacts stripped (120 rows affected)
 
 ### silver_orders
 
@@ -207,8 +238,40 @@ This data dictionary provides detailed schema information for all tables across 
 * UNION of prior + train datasets
 * `source_system` column added to track origin
 * 0 rows dropped
+* All FK constraints pass validation (0 orphans)
 
-**Data Quality Issue**: 3 orphan products (product_id not in silver_products) filtered in Gold layer
+### silver_validation
+
+**Source**: Validation query across all Silver tables  
+**Row Count**: 5 (one per Silver table)  
+**Grain**: One validation summary row per Silver table
+
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| table_name | STRING | No | | | Silver table being validated |
+| raw_rows | BIGINT | No | | | Row count from source Bronze table(s) |
+| clean_rows | BIGINT | No | | | Row count in cleaned Silver table |
+| row_difference | BIGINT | No | | | clean_rows - raw_rows (negative = rows dropped intentionally) |
+| null_key_rows | BIGINT | No | | | Count of rows with NULL primary key |
+| duplicate_keys | BIGINT | No | | | Count of duplicate key values |
+| required_field_issues | BIGINT | No | | | Count of NULL/empty required fields + text artifacts (e.g., backslash in product_name) |
+| unmatched_fk_rows | BIGINT | No | | | Count of foreign key values not found in parent tables |
+| status | STRING | No | | | 'PASS' if all issue counts = 0, otherwise 'REVIEW' |
+
+**Validation Rules**:
+* Primary keys must be non-NULL and unique
+* Required fields must be populated and clean
+* Foreign keys must reference existing parent records
+* Text quality issues (e.g., stray backslashes) must be resolved
+* `row_difference` is informational only and does not affect status (intentional data quality filtering)
+
+**Expected Result**: All 5 tables show status = 'PASS'
+
+**Key Differences from Bronze Validation**:
+* Uses 'PASS'/'REVIEW' instead of 'PASS'/'FAIL'
+* Does not enforce exact row counts (drops are expected)
+* Includes cross-table referential integrity checks
+* Validates text cleaning effectiveness
 
 ---
 
@@ -278,7 +341,7 @@ This data dictionary provides detailed schema information for all tables across 
 ### fact_order_product
 
 **Source**: `silver_order_products` + `silver_orders` (for user_id denormalization)  
-**Row Count**: 33,819,103 (3 orphan products filtered)  
+**Row Count**: 33,819,106 (0 orphan products filtered)  
 **Grain**: One row per product per order (order line item)  
 **Primary Key**: Composite (`order_id`, `add_to_cart_order`) (Unity Catalog constraint: `fact_order_product_pk`)
 
@@ -302,8 +365,8 @@ This data dictionary provides detailed schema information for all tables across 
 * Foreign Key: `fact_order_product_order_fk` on `order_id` → `dim_order.order_id`
 
 **Data Quality**:
-* 3 orphan products (product_id not in dim_product) filtered upstream
-* All FK constraints pass validation (0 orphans in fact table)
+* All FK constraints pass validation (0 orphans)
+* Referential integrity enforced by Unity Catalog
 
 ---
 
@@ -334,26 +397,6 @@ This data dictionary provides detailed schema information for all tables across 
 
 ---
 
-## Schema Evolution History
-
-### Version 1.0 (Current) — workspace.instacart_gold
-
-**Date**: 2026-09-04
-
-**Changes**:
-* Migrated from `workspace.default` (legacy) to `workspace.instacart_gold` (current)
-* Applied Unity Catalog PK/FK constraints
-* Table naming: `dim_product`, `dim_order`, `fact_order_product` (no plural 's')
-* Removed separate `dim_customers` table (embedded in `dim_order`)
-* Changed `reordered` from INT to BOOLEAN in fact table
-
-### Version 0.x (Legacy) — workspace.default
-
-**Tables**: `dim_products`, `dim_orders`, `dim_customers`, `fact_order_items`
-
-**Status**: Deprecated, retained for backward compatibility
-
----
 
 ## Column Naming Conventions
 
@@ -375,13 +418,6 @@ This data dictionary provides detailed schema information for all tables across 
 
 ### Known Issues
 
-**3 Orphan Products**:
-* **Location**: `silver_order_products`
-* **Issue**: 3 product_id values not present in `silver_products`
-* **Impact**: 3 rows filtered when creating `fact_order_product`
-* **Root Cause**: Upstream source data inconsistency
-* **Status**: Documented, accepted
-
 **75,000 Orders Dropped**:
 * **Location**: `bronze_orders` → `silver_orders`
 * **Issue**: NULL `order_id` or `user_id`
@@ -402,8 +438,17 @@ This data dictionary provides detailed schema information for all tables across 
 
 **Gold Layer**:
 * ✓ Unity Catalog PK/FK constraints successfully applied
-* ✓ 0 orphans in fact table (3 filtered upstream)
+* ✓ 0 orphans in fact table
 * ✓ All measures validated (reordered is 0/1, add_to_cart_order > 0)
+
+### Resolved Issues
+
+**CSV Parsing (Products)**:
+* **Issue**: Embedded quotation marks in product names (e.g., `Bag of Organic Bananas, "Bunch"`) caused parsing errors, creating malformed product records
+* **Root Cause**: Default CSV reader settings did not handle embedded quotes correctly
+* **Fix**: Added explicit `quote => '"'` and `escape => '"'` settings to Bronze products reader (Cell 04)
+* **Impact**: 0 orphan products in Silver and Gold layers
+* **Status**: Resolved by Nadine in Bronze notebook
 
 ---
 

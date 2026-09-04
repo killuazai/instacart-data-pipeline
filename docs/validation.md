@@ -1,6 +1,6 @@
 # Validation Documentation
 
-**Engineer Instacart — Data Quality and Validation Checks**
+**Instacart Data Pipeline — Data Quality and Validation Checks**
 
 ---
 
@@ -10,10 +10,17 @@ Validation is **part of the pipeline** and should be completed before moving dow
 
 **Key Principles:**
 * **Fail Fast**: Detect issues at the earliest layer possible
-* **Record Evidence**: Log all validation results with timestamps
+* **Consolidated Validation**: One query per layer produces table-level PASS/REVIEW status
 * **Automated Checks**: Build validation into pipeline code, not manual inspection
-* **Reconciliation**: Every downstream row must trace back to source
+* **Reconciliation**: Track row differences between layers with documented drops
 * **Business Rules**: Validate not just technical integrity but business logic
+
+**Validation Status:**
+* **PASS**: All checks clean for that table (no nulls, no duplicates, no orphans, no required field issues)
+* **REVIEW**: One or more issues detected; investigate before proceeding
+
+**Row Difference Philosophy:**  
+Silver intentionally drops rows (null keys, invalid ranges, orphan FKs). A non-zero `row_difference` vs Bronze is **expected**, not a failure. Status checks whether problems remain in the clean output after documented drops.
 
 ---
 
@@ -22,304 +29,239 @@ Validation is **part of the pipeline** and should be completed before moving dow
 ### Purpose
 Validate raw ingestion from source CSV files into Bronze Delta tables.
 
-### Critical Checks
+### Schema
+`workspace.instacart_bronze`
 
-#### 1.1 Source vs Bronze Row Count Reconciliation
+### Tables Created
+* `orders` - 3,421,083 rows
+* `products` - 49,688 rows
+* `aisles` - 134 rows
+* `departments` - 21 rows
+* `order_products_prior` - ~32.4M rows
+* `order_products_train` - ~1.4M rows
 
-**What**: Confirm all source rows loaded into Bronze
+### Validation Checks
 
-**How**:
+Bronze validation confirms:
+1. All source CSV rows loaded successfully
+2. No parsing errors or malformed rows
+3. Primary keys are present and unique
+4. All expected source files were present
+
+**Individual Table Validation Pattern:**
 ```sql
--- Count source CSV rows (via COPY INTO metrics or pre-load count)
-SELECT COUNT(*) FROM text.`/path/to/orders.csv`;
-
--- Count Bronze table rows
-SELECT COUNT(*) FROM instacart_bronze.orders;
-
--- Expected: counts match exactly
-```
-
-**Expected Results**:
-* `orders.csv` → `bronze.orders`: 3,421,083 rows
-* `products.csv` → `bronze.products`: 49,688 rows
-* `aisles.csv` → `bronze.aisles`: 134 rows
-* `departments.csv` → `bronze.departments`: 21 rows
-* `order_products__prior.csv` → `bronze.order_products_prior`: ~32.4M rows
-* `order_products__train.csv` → `bronze.order_products_train`: ~1.4M rows
-
-**Validation Query**:
-```sql
+-- Validate orders table
 SELECT 
   'orders' AS table_name,
-  (SELECT COUNT(*) FROM instacart_bronze.orders) AS bronze_count,
+  COUNT(*) AS bronze_count,
   3421083 AS expected_count,
-  CASE WHEN (SELECT COUNT(*) FROM instacart_bronze.orders) = 3421083 
-       THEN 'PASS' ELSE 'FAIL' END AS status
+  SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) AS null_keys,
+  CASE 
+    WHEN COUNT(*) = 3421083 
+      AND SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) = 0
+    THEN 'PASS' 
+    ELSE 'REVIEW' 
+  END AS status
+FROM workspace.instacart_bronze.orders;
 
-UNION ALL
-
-SELECT 
-  'products',
-  (SELECT COUNT(*) FROM instacart_bronze.products),
-  49688,
-  CASE WHEN (SELECT COUNT(*) FROM instacart_bronze.products) = 49688 
-       THEN 'PASS' ELSE 'FAIL' END
-
--- Repeat for all tables
+-- Repeat similar pattern for products, aisles, departments, order_products_prior, order_products_train
 ```
 
----
-
-#### 1.2 Null Required Identifiers
-
-**What**: Ensure primary keys are never NULL
-
-**How**:
-```sql
--- Orders: order_id must not be NULL
-SELECT COUNT(*) AS null_order_ids
-FROM instacart_bronze.orders
-WHERE order_id IS NULL;
--- Expected: 0
-
--- Products: product_id must not be NULL
-SELECT COUNT(*) AS null_product_ids
-FROM instacart_bronze.products
-WHERE product_id IS NULL;
--- Expected: 0
-
--- Order Products: order_id AND product_id must not be NULL
-SELECT COUNT(*) AS null_key_rows
-FROM instacart_bronze.order_products_prior
-WHERE order_id IS NULL OR product_id IS NULL;
--- Expected: 0
-```
-
-**Business Rule**: A transaction without identifiers cannot be processed.
-
----
-
-#### 1.3 Duplicate Primary Keys
-
-**What**: Ensure source data has no unexpected duplicates
-
-**How**:
-```sql
--- Orders: order_id should be unique
-SELECT order_id, COUNT(*) AS duplicate_count
-FROM instacart_bronze.orders
-GROUP BY order_id
-HAVING COUNT(*) > 1;
--- Expected: 0 rows
-
--- Products: product_id should be unique
-SELECT product_id, COUNT(*) AS duplicate_count
-FROM instacart_bronze.products
-GROUP BY product_id
-HAVING COUNT(*) > 1;
--- Expected: 0 rows
-```
-
-**Business Rule**: Each order and product should appear once in reference data.
-
----
-
-#### 1.4 Rescued / Malformed Rows
-
-**What**: Check for parsing errors during CSV ingestion
-
-**How**:
-```sql
--- If using Auto Loader or COPY INTO with rescue columns
-SELECT COUNT(*) AS malformed_rows
-FROM instacart_bronze.orders
-WHERE _rescued_data IS NOT NULL;
--- Expected: 0
-```
-
-**Action if Failed**: Investigate source file quality, adjust schema or parsing options.
-
----
-
-#### 1.5 Expected Source Files Present
-
-**What**: Confirm all required CSVs are available
-
-**How**:
-```python
-# Check file existence in DBFS or Unity Catalog Volume
-expected_files = [
-    "orders.csv",
-    "products.csv",
-    "aisles.csv",
-    "departments.csv",
-    "order_products__prior.csv",
-    "order_products__train.csv"
-]
-
-# Check if files exist (pseudo-code)
-for file in expected_files:
-    assert file_exists(f"/Volumes/instacart/raw/{file}"), f"Missing: {file}"
-```
-
-**Expected**: All 6 files present before ingestion starts.
+**Expected Result**: All tables return status = 'PASS'
 
 ---
 
 ## 2. Silver Validation
 
 ### Purpose
-Validate cleaned, standardized, and joined data before dimensional modeling.
+Validate cleaned, standardized data with referential integrity before dimensional modeling.
 
-### Critical Checks
+### Schema
+`workspace.instacart_silver`
 
-#### 2.1 Bronze vs Silver Row Preservation
+### Tables Created (with `_clean` suffix)
+* `aisles_clean` - 134 rows
+* `departments_clean` - 21 rows
+* `products_clean` - ~49,687 rows (drops products with orphan FK to aisles/departments)
+* `orders_clean` - ~3,421,083 rows (drops rows with invalid day/hour ranges)
+* `order_products_clean` - ~33.8M rows (union of prior + train, drops orphan FK to orders)
 
-**What**: Ensure no rows are silently dropped during cleaning/transformation
+### Build Order & Dependencies
 
-**How**:
+| # | Task | Depends on | Why |
+|---|------|------------|-----|
+| 1 | `aisles_clean` | Bronze aisles | Independent |
+| 2 | `departments_clean` | Bronze departments | Independent |
+| 3 | `products_clean` | `aisles_clean`, `departments_clean` | Checks EXISTS against cleaned lookups |
+| 4 | `orders_clean` | Bronze orders | Independent |
+| 5 | `order_products_clean` | `orders_clean` | Checks EXISTS against cleaned orders |
+| 6 | Silver validation | All 5 above | Consolidated PASS/REVIEW gate |
+
+### Consolidated Validation Query
+
+**Owner**: Ina  
+**Name**: 14 - Silver Validation  
+**Purpose**: Validate Silver row counts, required identifiers, candidate keys, required fields, referential integrity, and text-quality artifacts with table-level pass or fail results.  
+**Grain**: One validation summary row per Silver table.
+
 ```sql
--- Order Products: Bronze source rows should equal Silver rows
-SELECT 
-  (SELECT COUNT(*) FROM instacart_bronze.order_products_prior) + 
-  (SELECT COUNT(*) FROM instacart_bronze.order_products_train) AS bronze_total,
-  (SELECT COUNT(*) FROM instacart_silver.order_products) AS silver_total,
-  CASE WHEN 
-    (SELECT COUNT(*) FROM instacart_bronze.order_products_prior) + 
-    (SELECT COUNT(*) FROM instacart_bronze.order_products_train) = 
-    (SELECT COUNT(*) FROM instacart_silver.order_products)
-  THEN 'PASS' ELSE 'FAIL' END AS reconciliation_status;
--- Expected: bronze_total = silver_total = 33,819,103
+WITH validation AS (
+
+    SELECT
+        'aisles' AS table_name,
+        (SELECT COUNT(*) FROM workspace.instacart_bronze.aisles) AS raw_rows,
+        COUNT(*) AS clean_rows,
+        COUNT(*) - (SELECT COUNT(*) FROM workspace.instacart_bronze.aisles) AS row_difference,
+        SUM(CASE WHEN aisle_id IS NULL THEN 1 ELSE 0 END) AS null_key_rows,
+        (SELECT COUNT(*) FROM (
+            SELECT aisle_id FROM aisles_clean
+            WHERE aisle_id IS NOT NULL GROUP BY aisle_id HAVING COUNT(*) > 1
+        )) AS duplicate_keys,
+        SUM(CASE WHEN aisle IS NULL OR TRIM(aisle) = '' THEN 1 ELSE 0 END) AS required_field_issues,
+        0 AS unmatched_fk_rows
+    FROM aisles_clean
+
+    UNION ALL
+
+    SELECT
+        'departments',
+        (SELECT COUNT(*) FROM workspace.instacart_bronze.departments),
+        COUNT(*),
+        COUNT(*) - (SELECT COUNT(*) FROM workspace.instacart_bronze.departments),
+        SUM(CASE WHEN department_id IS NULL THEN 1 ELSE 0 END),
+        (SELECT COUNT(*) FROM (
+            SELECT department_id FROM departments_clean
+            WHERE department_id IS NOT NULL GROUP BY department_id HAVING COUNT(*) > 1
+        )),
+        SUM(CASE WHEN department IS NULL OR TRIM(department) = '' THEN 1 ELSE 0 END),
+        0
+    FROM departments_clean
+
+    UNION ALL
+
+    SELECT
+        'products',
+        (SELECT COUNT(*) FROM workspace.instacart_bronze.products),
+        COUNT(*),
+        COUNT(*) - (SELECT COUNT(*) FROM workspace.instacart_bronze.products),
+        SUM(CASE WHEN product_id IS NULL THEN 1 ELSE 0 END),
+        (SELECT COUNT(*) FROM (
+            SELECT product_id FROM products_clean
+            WHERE product_id IS NOT NULL GROUP BY product_id HAVING COUNT(*) > 1
+        )),
+        SUM(CASE WHEN product_name IS NULL OR TRIM(product_name) = '' THEN 1 ELSE 0 END)
+         + SUM(CASE WHEN INSTR(product_name, CHR(92)) > 0 THEN 1 ELSE 0 END),
+        (SELECT COUNT(*) FROM products_clean p
+            LEFT JOIN aisles_clean a ON p.aisle_id = a.aisle_id
+            WHERE p.aisle_id IS NOT NULL AND a.aisle_id IS NULL)
+         + (SELECT COUNT(*) FROM products_clean p
+            LEFT JOIN departments_clean d ON p.department_id = d.department_id
+            WHERE p.department_id IS NOT NULL AND d.department_id IS NULL)
+    FROM products_clean
+
+    UNION ALL
+
+    SELECT
+        'orders',
+        (SELECT COUNT(*) FROM workspace.instacart_bronze.orders),
+        COUNT(*),
+        COUNT(*) - (SELECT COUNT(*) FROM workspace.instacart_bronze.orders),
+        SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END),
+        (SELECT COUNT(*) FROM (
+            SELECT order_id FROM orders_clean
+            WHERE order_id IS NOT NULL GROUP BY order_id HAVING COUNT(*) > 1
+        )),
+        SUM(CASE
+            WHEN user_id IS NULL
+              OR order_number IS NULL
+              OR order_dow NOT BETWEEN 0 AND 6
+              OR order_hour_of_day NOT BETWEEN 0 AND 23
+              OR (order_number = 1 AND days_since_prior_order IS NOT NULL)
+              OR (order_number > 1 AND days_since_prior_order IS NULL)
+            THEN 1
+            ELSE 0
+        END),
+        0
+    FROM orders_clean
+
+    UNION ALL
+
+    SELECT
+        'order_products',
+        (SELECT COUNT(*) FROM workspace.instacart_bronze.order_products_prior)
+          + (SELECT COUNT(*) FROM workspace.instacart_bronze.order_products_train),
+        COUNT(*),
+        COUNT(*) - (
+            (SELECT COUNT(*) FROM workspace.instacart_bronze.order_products_prior)
+          + (SELECT COUNT(*) FROM workspace.instacart_bronze.order_products_train)
+        ),
+        SUM(CASE WHEN order_id IS NULL OR product_id IS NULL THEN 1 ELSE 0 END),
+        (SELECT COUNT(*) FROM (
+            SELECT order_id, product_id FROM order_products_clean
+            GROUP BY order_id, product_id HAVING COUNT(*) > 1
+        )),
+        SUM(CASE
+            WHEN add_to_cart_order IS NULL OR add_to_cart_order <= 0
+            THEN 1 ELSE 0
+        END),
+        (SELECT COUNT(*) FROM order_products_clean op
+            LEFT JOIN orders_clean o ON op.order_id = o.order_id
+            WHERE o.order_id IS NULL)
+         + (SELECT COUNT(*) FROM order_products_clean op
+            LEFT JOIN products_clean p ON op.product_id = p.product_id
+            WHERE p.product_id IS NULL)
+    FROM order_products_clean
+
+)
+
+SELECT
+    *,
+    CASE
+        WHEN null_key_rows = 0
+             AND duplicate_keys = 0
+             AND required_field_issues = 0
+             AND unmatched_fk_rows = 0
+        THEN 'PASS'
+        ELSE 'REVIEW'
+    END AS status
+FROM validation
+ORDER BY table_name;
 ```
 
-**Exception Handling**: If rows are intentionally filtered (e.g., invalid records), document the exclusion logic and count.
+### Validation Output Columns
 
----
+| Column | Meaning |
+|--------|---------|
+| `table_name` | Silver table being validated |
+| `raw_rows` | Count from Bronze source |
+| `clean_rows` | Count in Silver table |
+| `row_difference` | clean_rows - raw_rows (negative = intentional drops) |
+| `null_key_rows` | Rows with NULL primary/composite keys |
+| `duplicate_keys` | Groups with duplicate keys |
+| `required_field_issues` | Rows with NULL/empty required fields or text artifacts |
+| `unmatched_fk_rows` | Rows with foreign keys that don't resolve |
+| `status` | PASS (all checks = 0) or REVIEW |
 
-#### 2.2 Null Required Keys
+### Expected Results
 
-**What**: Foreign keys must not be NULL in Silver (referential integrity preparation)
+**All 5 tables should return status = 'PASS'**
 
-**How**:
-```sql
--- Silver Order Products: Check foreign keys
-SELECT 
-  COUNT(*) AS total_rows,
-  SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END) AS null_order_ids,
-  SUM(CASE WHEN product_id IS NULL THEN 1 ELSE 0 END) AS null_product_ids,
-  SUM(CASE WHEN user_id IS NULL THEN 1 ELSE 0 END) AS null_user_ids
-FROM instacart_silver.order_products;
--- Expected: null counts = 0 for all columns
-```
+| Table | Expected Behavior |
+|-------|-------------------|
+| `aisles` | Simple trim/casing, no dependencies |
+| `departments` | Simple trim/casing, no dependencies |
+| `products` | Depends on aisles + departments; backslash fix applied |
+| `orders` | NULL `days_since_prior_order` preserved intentionally for first orders |
+| `order_products` | Depends on orders; unions prior + train |
 
----
+**Note on `row_difference`:**
+- Shown per table but does NOT affect status
+- Silver intentionally drops invalid rows
+- See `decisions.md` for exclusion logic
 
-#### 2.3 Duplicate Keys and Grain Validation
-
-**What**: Confirm grain integrity (one row per order-product combination)
-
-**How**:
-```sql
--- Silver Order Products: (order_id, product_id) should be unique
-SELECT order_id, product_id, COUNT(*) AS duplicate_count
-FROM instacart_silver.order_products
-GROUP BY order_id, product_id
-HAVING COUNT(*) > 1;
--- Expected: 0 rows (no duplicates)
-```
-
-**Business Rule**: A customer cannot add the same product twice in one order (or if they can, we need quantity field).
-
----
-
-#### 2.4 Valid Ranges
-
-**What**: Business logic constraints on numeric fields
-
-**How**:
-```sql
--- Order hour should be 0-23
-SELECT COUNT(*) AS invalid_hours
-FROM instacart_silver.orders
-WHERE order_hour_of_day < 0 OR order_hour_of_day > 23;
--- Expected: 0
-
--- Order day of week should be 0-6
-SELECT COUNT(*) AS invalid_dow
-FROM instacart_silver.orders
-WHERE order_dow < 0 OR order_dow > 6;
--- Expected: 0
-
--- Add to cart order should be >= 1
-SELECT COUNT(*) AS invalid_cart_order
-FROM instacart_silver.order_products
-WHERE add_to_cart_order < 1;
--- Expected: 0
-
--- Reordered should be 0 or 1
-SELECT COUNT(*) AS invalid_reorder_flag
-FROM instacart_silver.order_products
-WHERE reordered NOT IN (0, 1);
--- Expected: 0
-```
-
----
-
-#### 2.5 Valid `eval_set` Values
-
-**What**: Source system identifier should be 'prior' or 'train'
-
-**How**:
-```sql
-SELECT eval_set, COUNT(*) AS row_count
-FROM instacart_silver.orders
-GROUP BY eval_set;
--- Expected: Only 'prior' and 'train' values
-
-SELECT COUNT(*) AS invalid_eval_set
-FROM instacart_silver.orders
-WHERE eval_set NOT IN ('prior', 'train');
--- Expected: 0
-```
-
----
-
-#### 2.6 Missing Relationships
-
-**What**: Ensure all foreign keys have matching parent records
-
-**How**:
-```sql
--- Order Products → Orders: All order_ids should exist in orders table
-SELECT COUNT(*) AS orphan_orders
-FROM instacart_silver.order_products op
-LEFT JOIN instacart_silver.orders o ON op.order_id = o.order_id
-WHERE o.order_id IS NULL;
--- Expected: 0
-
--- Order Products → Products: All product_ids should exist in products table
-SELECT COUNT(*) AS orphan_products
-FROM instacart_silver.order_products op
-LEFT JOIN instacart_silver.products p ON op.product_id = p.product_id
-WHERE p.product_id IS NULL;
--- Expected: 0
-
--- Products → Aisles
-SELECT COUNT(*) AS orphan_aisles
-FROM instacart_silver.products p
-LEFT JOIN instacart_silver.aisles a ON p.aisle_id = a.aisle_id
-WHERE a.aisle_id IS NULL;
--- Expected: 0
-
--- Products → Departments
-SELECT COUNT(*) AS orphan_departments
-FROM instacart_silver.products p
-LEFT JOIN instacart_silver.departments d ON p.department_id = d.department_id
-WHERE d.department_id IS NULL;
--- Expected: 0
-```
-
-**Business Rule**: All transactions must reference valid master data entities.
+**Note on `required_field_issues` for products:**
+- Also counts any remaining backslash matches `CHR(92)` in `product_name`
+- A regression in the backslash fix surfaces as REVIEW automatically
 
 ---
 
@@ -328,655 +270,563 @@ WHERE d.department_id IS NULL;
 ### Purpose
 Validate dimensional star schema integrity before consumption.
 
-### Critical Checks
+### Schema
+`workspace.instacart_gold`
 
-#### 3.1 Silver vs Gold Fact Row Reconciliation
+### Tables Created
+* `gold_dim_product` - Product dimension with flattened aisle/department names
+* `gold_dim_order` - Order dimension with customer, time, and interval context
+* `gold_fact_order_product` - Narrow product-line fact table
 
-**What**: Confirm all Silver order-product rows exist in Gold fact table
+### Three-Stage Validation
 
-**How**:
-```sql
-SELECT 
-  (SELECT COUNT(*) FROM instacart_silver.order_products) AS silver_count,
-  (SELECT COUNT(*) FROM instacart_gold.fact_order_items) AS gold_count,
-  (SELECT COUNT(*) FROM instacart_silver.order_products) - 
-  (SELECT COUNT(*) FROM instacart_gold.fact_order_items) AS row_difference,
-  CASE WHEN 
-    (SELECT COUNT(*) FROM instacart_silver.order_products) = 
-    (SELECT COUNT(*) FROM instacart_gold.fact_order_items)
-  THEN 'PASS' ELSE 'FAIL' END AS reconciliation_status;
--- Expected: silver_count = gold_count = 33,819,103
-```
+Gold uses three separate validation queries executed in sequence.
 
 ---
 
-#### 3.2 Dimension Key Uniqueness
+#### Query 18: Pre-Constraint Validation (Dimensions Only)
 
-**What**: Primary keys in dimensions must be unique
+**Owner**: Cath  
+**Purpose**: Validate dimension tables before building the fact table  
+**Grain**: One validation summary row per dimension table
 
-**How**:
 ```sql
--- dim_products: product_key should be unique
-SELECT product_key, COUNT(*) AS duplicate_count
-FROM instacart_gold.dim_products
-GROUP BY product_key
-HAVING COUNT(*) > 1;
--- Expected: 0 rows
+WITH validation AS (
 
--- dim_customers: customer_key should be unique
-SELECT customer_key, COUNT(*) AS duplicate_count
-FROM instacart_gold.dim_customers
-GROUP BY customer_key
-HAVING COUNT(*) > 1;
--- Expected: 0 rows
+    SELECT
+        'gold_dim_product' AS table_name,
+        COUNT(*) AS row_count,
+        SUM(CASE WHEN product_id IS NULL THEN 1 ELSE 0 END) AS null_key_rows,
+        (SELECT COUNT(*) FROM (
+            SELECT product_id FROM gold_dim_product
+            WHERE product_id IS NOT NULL GROUP BY product_id HAVING COUNT(*) > 1
+        )) AS duplicate_keys,
+        SUM(CASE WHEN product_name IS NULL THEN 1 ELSE 0 END) AS required_field_issues
+    FROM gold_dim_product
 
--- dim_orders: order_key should be unique
-SELECT order_key, COUNT(*) AS duplicate_count
-FROM instacart_gold.dim_orders
-GROUP BY order_key
-HAVING COUNT(*) > 1;
--- Expected: 0 rows
-```
+    UNION ALL
 
-**Validation Summary**:
-```sql
-SELECT 
-  'dim_products' AS dimension,
-  COUNT(DISTINCT product_key) AS unique_keys,
-  COUNT(*) AS total_rows,
-  CASE WHEN COUNT(DISTINCT product_key) = COUNT(*) THEN 'PASS' ELSE 'FAIL' END AS status
-FROM instacart_gold.dim_products
+    SELECT
+        'gold_dim_order',
+        COUNT(*),
+        SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END),
+        (SELECT COUNT(*) FROM (
+            SELECT order_id FROM gold_dim_order
+            WHERE order_id IS NOT NULL GROUP BY order_id HAVING COUNT(*) > 1
+        )),
+        SUM(CASE WHEN user_id IS NULL OR order_number IS NULL THEN 1 ELSE 0 END)
+    FROM gold_dim_order
 
-UNION ALL
-
-SELECT 
-  'dim_customers',
-  COUNT(DISTINCT customer_key),
-  COUNT(*),
-  CASE WHEN COUNT(DISTINCT customer_key) = COUNT(*) THEN 'PASS' ELSE 'FAIL' END
-FROM instacart_gold.dim_customers
-
-UNION ALL
-
-SELECT 
-  'dim_orders',
-  COUNT(DISTINCT order_key),
-  COUNT(*),
-  CASE WHEN COUNT(DISTINCT order_key) = COUNT(*) THEN 'PASS' ELSE 'FAIL' END
-FROM instacart_gold.dim_orders;
-```
-
----
-
-#### 3.3 Fact Grain Uniqueness
-
-**What**: Confirm fact table grain (one row per order-product)
-
-**How**:
-```sql
--- Option 1: Surrogate key should be unique
-SELECT order_item_key, COUNT(*) AS duplicate_count
-FROM instacart_gold.fact_order_items
-GROUP BY order_item_key
-HAVING COUNT(*) > 1;
--- Expected: 0 rows
-
--- Option 2: Natural key (order_key, product_key) should be unique
-SELECT order_key, product_key, COUNT(*) AS duplicate_count
-FROM instacart_gold.fact_order_items
-GROUP BY order_key, product_key
-HAVING COUNT(*) > 1;
--- Expected: 0 rows
-```
-
----
-
-#### 3.4 Null Foreign Keys
-
-**What**: Fact table foreign keys must never be NULL
-
-**How**:
-```sql
-SELECT 
-  COUNT(*) AS total_rows,
-  SUM(CASE WHEN order_key IS NULL THEN 1 ELSE 0 END) AS null_order_keys,
-  SUM(CASE WHEN product_key IS NULL THEN 1 ELSE 0 END) AS null_product_keys,
-  SUM(CASE WHEN customer_key IS NULL THEN 1 ELSE 0 END) AS null_customer_keys,
-  CASE WHEN 
-    SUM(CASE WHEN order_key IS NULL THEN 1 ELSE 0 END) = 0 AND
-    SUM(CASE WHEN product_key IS NULL THEN 1 ELSE 0 END) = 0 AND
-    SUM(CASE WHEN customer_key IS NULL THEN 1 ELSE 0 END) = 0
-  THEN 'PASS' ELSE 'FAIL' END AS validation_status
-FROM instacart_gold.fact_order_items;
--- Expected: all null counts = 0
-```
-
----
-
-#### 3.5 Unmatched Relationships (Referential Integrity)
-
-**What**: All fact foreign keys must have matching dimension records
-
-**How**:
-```sql
--- Fact → dim_products
-SELECT COUNT(*) AS orphan_product_keys
-FROM instacart_gold.fact_order_items f
-LEFT JOIN instacart_gold.dim_products p ON f.product_key = p.product_key
-WHERE p.product_key IS NULL;
--- Expected: 0
-
--- Fact → dim_orders
-SELECT COUNT(*) AS orphan_order_keys
-FROM instacart_gold.fact_order_items f
-LEFT JOIN instacart_gold.dim_orders o ON f.order_key = o.order_key
-WHERE o.order_key IS NULL;
--- Expected: 0
-
--- Fact → dim_customers
-SELECT COUNT(*) AS orphan_customer_keys
-FROM instacart_gold.fact_order_items f
-LEFT JOIN instacart_gold.dim_customers c ON f.customer_key = c.customer_key
-WHERE c.customer_key IS NULL;
--- Expected: 0
-```
-
-**Validation Summary**:
-```sql
-SELECT 
-  'fact -> dim_products' AS relationship,
-  (SELECT COUNT(*) FROM instacart_gold.fact_order_items f
-   LEFT JOIN instacart_gold.dim_products p ON f.product_key = p.product_key
-   WHERE p.product_key IS NULL) AS orphan_count,
-  CASE WHEN (SELECT COUNT(*) FROM instacart_gold.fact_order_items f
-             LEFT JOIN instacart_gold.dim_products p ON f.product_key = p.product_key
-             WHERE p.product_key IS NULL) = 0 
-       THEN 'PASS' ELSE 'FAIL' END AS status
-
-UNION ALL
-
-SELECT 
-  'fact -> dim_orders',
-  (SELECT COUNT(*) FROM instacart_gold.fact_order_items f
-   LEFT JOIN instacart_gold.dim_orders o ON f.order_key = o.order_key
-   WHERE o.order_key IS NULL),
-  CASE WHEN (SELECT COUNT(*) FROM instacart_gold.fact_order_items f
-             LEFT JOIN instacart_gold.dim_orders o ON f.order_key = o.order_key
-             WHERE o.order_key IS NULL) = 0 
-       THEN 'PASS' ELSE 'FAIL' END
-
-UNION ALL
-
-SELECT 
-  'fact -> dim_customers',
-  (SELECT COUNT(*) FROM instacart_gold.fact_order_items f
-   LEFT JOIN instacart_gold.dim_customers c ON f.customer_key = c.customer_key
-   WHERE c.customer_key IS NULL),
-  CASE WHEN (SELECT COUNT(*) FROM instacart_gold.fact_order_items f
-             LEFT JOIN instacart_gold.dim_customers c ON f.customer_key = c.customer_key
-             WHERE c.customer_key IS NULL) = 0 
-       THEN 'PASS' ELSE 'FAIL' END;
-```
-
----
-
-#### 3.6 Measure Reconciliation
-
-**What**: Validate that measures in fact table match source aggregations
-
-**How**:
-```sql
--- Total products purchased should match across layers
-SELECT 
-  'Silver' AS layer,
-  COUNT(*) AS total_products_purchased
-FROM instacart_silver.order_products
-
-UNION ALL
-
-SELECT 
-  'Gold (Fact)',
-  COUNT(*)
-FROM instacart_gold.fact_order_items;
--- Expected: counts match
-
--- Reorder count reconciliation
-SELECT 
-  SUM(CAST(reordered AS INT)) AS silver_reorder_count
-FROM instacart_silver.order_products;
-
-SELECT 
-  SUM(CAST(is_reordered AS INT)) AS gold_reorder_count
-FROM instacart_gold.fact_order_items;
--- Expected: counts match
-```
-
----
-
-#### 3.7 Pre-Aggregated Dimension Metrics
-
-**What**: Validate customer metrics in dim_customers
-
-**How**:
-```sql
--- Sample validation: Check a specific customer's total_orders
-WITH customer_orders AS (
-  SELECT 
-    o.user_id,
-    MAX(o.order_number) AS calculated_total_orders,
-    COUNT(DISTINCT o.order_id) AS calculated_order_count
-  FROM instacart_gold.dim_orders o
-  GROUP BY o.user_id
 )
-SELECT 
-  c.customer_key,
-  c.total_orders AS dimension_total_orders,
-  co.calculated_total_orders,
-  c.total_order_count AS dimension_order_count,
-  co.calculated_order_count,
-  CASE WHEN 
-    c.total_orders = co.calculated_total_orders AND
-    c.total_order_count = co.calculated_order_count
-  THEN 'PASS' ELSE 'FAIL' END AS validation_status
-FROM instacart_gold.dim_customers c
-JOIN customer_orders co ON c.customer_key = co.user_id
-WHERE c.customer_key IN (1, 2, 100, 1000) -- Sample customers
-ORDER BY c.customer_key;
+SELECT
+    table_name,
+    row_count,
+    null_key_rows,
+    duplicate_keys,
+    required_field_issues,
+    CASE
+        WHEN null_key_rows > 0 OR duplicate_keys > 0 OR required_field_issues > 0
+        THEN 'REVIEW'
+        ELSE 'PASS'
+    END AS status
+FROM validation
+ORDER BY table_name;
 ```
+
+**Expected**: 2 PASS rows with zero issue counts
 
 ---
 
-#### 3.8 Temporal Attribute Derivation
+#### Query 19: Constraint Checks (PK/FK Integrity)
 
-**What**: Validate derived columns in dim_orders
+**Owner**: Cath  
+**Purpose**: Validate PK/FK constraints across all gold tables  
+**Grain**: One validation summary row per constraint check
 
-**How**:
+Produces **8 report rows** covering:
+1. Product-key uniqueness
+2. Order-key uniqueness
+3. Fact (order_id, product_id) uniqueness
+4. Null product keys
+5. Null order keys
+6. Null fact order/product keys
+7. Fact-to-order relationship integrity
+8. Fact-to-product relationship integrity
+
 ```sql
--- Check day_of_week_name matches order_dow
-SELECT 
-  order_dow,
-  day_of_week_name,
-  COUNT(*) AS row_count
-FROM instacart_gold.dim_orders
-GROUP BY order_dow, day_of_week_name
-ORDER BY order_dow;
--- Expected: 
--- 0 -> 'Sunday'
--- 1 -> 'Monday'
--- 2 -> 'Tuesday'
--- 3 -> 'Wednesday'
--- 4 -> 'Thursday'
--- 5 -> 'Friday'
--- 6 -> 'Saturday'
+WITH constraint_checks AS (
 
--- Check time_of_day_bucket matches order_hour_of_day
-SELECT 
-  time_of_day_bucket,
-  MIN(order_hour_of_day) AS min_hour,
-  MAX(order_hour_of_day) AS max_hour
-FROM instacart_gold.dim_orders
-GROUP BY time_of_day_bucket;
--- Expected:
--- 'Morning' -> 5-11
--- 'Afternoon' -> 12-16
--- 'Evening' -> 17-21
--- 'Night' -> 22-4 (0-4, 22-23)
+    -- Check 1: gold_dim_product PK uniqueness
+    SELECT
+        'PK: gold_dim_product.product_id' AS constraint_name,
+        'Primary Key Uniqueness' AS constraint_type,
+        (SELECT COUNT(*) FROM (
+            SELECT product_id FROM gold_dim_product
+            WHERE product_id IS NOT NULL
+            GROUP BY product_id HAVING COUNT(*) > 1
+        )) AS violations
+
+    UNION ALL
+
+    -- Check 2: gold_dim_order PK uniqueness
+    SELECT
+        'PK: gold_dim_order.order_id',
+        'Primary Key Uniqueness',
+        (SELECT COUNT(*) FROM (
+            SELECT order_id FROM gold_dim_order
+            WHERE order_id IS NOT NULL
+            GROUP BY order_id HAVING COUNT(*) > 1
+        ))
+
+    UNION ALL
+
+    -- Check 3: gold_fact_order_product composite PK uniqueness
+    SELECT
+        'PK: gold_fact_order_product (order_id, product_id)',
+        'Composite Key Uniqueness',
+        (SELECT COUNT(*) FROM (
+            SELECT order_id, product_id FROM gold_fact_order_product
+            WHERE order_id IS NOT NULL AND product_id IS NOT NULL
+            GROUP BY order_id, product_id HAVING COUNT(*) > 1
+        ))
+
+    UNION ALL
+
+    -- Check 4: gold_dim_product PK null check
+    SELECT
+        'PK: gold_dim_product.product_id NOT NULL',
+        'Primary Key Null Check',
+        (SELECT COUNT(*) FROM gold_dim_product WHERE product_id IS NULL)
+
+    UNION ALL
+
+    -- Check 5: gold_dim_order PK null check
+    SELECT
+        'PK: gold_dim_order.order_id NOT NULL',
+        'Primary Key Null Check',
+        (SELECT COUNT(*) FROM gold_dim_order WHERE order_id IS NULL)
+
+    UNION ALL
+
+    -- Check 6: gold_fact_order_product composite PK null check
+    SELECT
+        'PK: gold_fact_order_product (order_id, product_id) NOT NULL',
+        'Composite Key Null Check',
+        (SELECT COUNT(*) FROM gold_fact_order_product
+         WHERE order_id IS NULL OR product_id IS NULL)
+
+    UNION ALL
+
+    -- Check 7: FK gold_fact_order_product.order_id → gold_dim_order.order_id
+    SELECT
+        'FK: gold_fact_order_product.order_id → gold_dim_order.order_id',
+        'Foreign Key Integrity',
+        (SELECT COUNT(*) FROM gold_fact_order_product f
+         LEFT JOIN gold_dim_order d ON f.order_id = d.order_id
+         WHERE f.order_id IS NOT NULL AND d.order_id IS NULL)
+
+    UNION ALL
+
+    -- Check 8: FK gold_fact_order_product.product_id → gold_dim_product.product_id
+    SELECT
+        'FK: gold_fact_order_product.product_id → gold_dim_product.product_id',
+        'Foreign Key Integrity',
+        (SELECT COUNT(*) FROM gold_fact_order_product f
+         LEFT JOIN gold_dim_product d ON f.product_id = d.product_id
+         WHERE f.product_id IS NOT NULL AND d.product_id IS NULL)
+
+)
+SELECT
+    constraint_name,
+    constraint_type,
+    violations,
+    CASE WHEN violations = 0 THEN 'PASS' ELSE 'REVIEW' END AS status
+FROM constraint_checks
+ORDER BY constraint_type, constraint_name;
 ```
+
+**Expected**: 8 PASS rows with zero violations
+
+**Note**: This query only checks the data. It does NOT execute `ALTER TABLE ... ADD CONSTRAINT` or register primary/foreign keys in Unity Catalog.
 
 ---
 
-## 4. Business Question Validation
+#### Query 20: Final Validation (Comprehensive)
+
+**Owner**: Cath  
+**Purpose**: Comprehensive gold validation - keys, integrity, silver-to-gold reconciliation, and measures  
+**Returns**: Two result sets
+
+**Result Set 1: Table-Level Checks**
+
+```sql
+-- PART 1: Table-level validation (keys, row counts, referential integrity)
+WITH validation AS (
+
+    SELECT
+        'gold_dim_product' AS table_name,
+        COUNT(*) AS row_count,
+        (SELECT COUNT(*) FROM workspace.instacart_silver.products_clean) AS source_row_count,
+        SUM(CASE WHEN product_id IS NULL THEN 1 ELSE 0 END) AS null_key_rows,
+        (SELECT COUNT(*) FROM (
+            SELECT product_id FROM gold_dim_product
+            WHERE product_id IS NOT NULL GROUP BY product_id HAVING COUNT(*) > 1
+        )) AS duplicate_keys,
+        SUM(CASE WHEN product_name IS NULL THEN 1 ELSE 0 END) AS required_field_issues,
+        0 AS unmatched_fk_rows
+    FROM gold_dim_product
+
+    UNION ALL
+
+    SELECT
+        'gold_dim_order',
+        COUNT(*),
+        (SELECT COUNT(*) FROM workspace.instacart_silver.orders_clean),
+        SUM(CASE WHEN order_id IS NULL THEN 1 ELSE 0 END),
+        (SELECT COUNT(*) FROM (
+            SELECT order_id FROM gold_dim_order
+            WHERE order_id IS NOT NULL GROUP BY order_id HAVING COUNT(*) > 1
+        )),
+        SUM(CASE WHEN user_id IS NULL OR order_number IS NULL THEN 1 ELSE 0 END),
+        0
+    FROM gold_dim_order
+
+    UNION ALL
+
+    SELECT
+        'gold_fact_order_product',
+        COUNT(*),
+        (SELECT COUNT(*) FROM workspace.instacart_silver.order_products_clean),
+        SUM(CASE WHEN order_id IS NULL OR product_id IS NULL THEN 1 ELSE 0 END),
+        (SELECT COUNT(*) FROM (
+            SELECT order_id, product_id FROM gold_fact_order_product
+            WHERE order_id IS NOT NULL AND product_id IS NOT NULL
+            GROUP BY order_id, product_id HAVING COUNT(*) > 1
+        )),
+        0,
+        (SELECT COUNT(*) FROM gold_fact_order_product f
+            LEFT JOIN gold_dim_order o ON f.order_id = o.order_id
+            WHERE f.order_id IS NOT NULL AND o.order_id IS NULL)
+         + (SELECT COUNT(*) FROM gold_fact_order_product f
+            LEFT JOIN gold_dim_product p ON f.product_id = p.product_id
+            WHERE f.product_id IS NOT NULL AND p.product_id IS NULL)
+    FROM gold_fact_order_product
+
+)
+SELECT
+    table_name,
+    row_count,
+    source_row_count,
+    row_count - source_row_count AS row_difference,
+    null_key_rows,
+    duplicate_keys,
+    required_field_issues,
+    unmatched_fk_rows,
+    CASE
+        WHEN null_key_rows > 0 OR duplicate_keys > 0
+          OR required_field_issues > 0 OR unmatched_fk_rows > 0
+          OR row_count <> source_row_count
+        THEN 'REVIEW'
+        ELSE 'PASS'
+    END AS status
+FROM validation
+ORDER BY table_name;
+```
+
+**Expected**: 3 PASS rows with zero differences and issues
+
+---
+
+**Result Set 2: Measure Reconciliation**
+
+Compares aggregate measures between Silver and Gold:
+
+```sql
+-- PART 2: Measure reconciliation (aggregate validation)
+WITH silver_measures AS (
+    SELECT
+        COUNT(*) AS total_order_lines,
+        COUNT(DISTINCT order_id) AS distinct_orders,
+        COUNT(DISTINCT product_id) AS distinct_products,
+        SUM(CASE WHEN reordered = TRUE THEN 1 ELSE 0 END) AS reordered_count,
+        SUM(add_to_cart_order) AS total_cart_position_sum
+    FROM workspace.instacart_silver.order_products_clean
+),
+gold_measures AS (
+    SELECT
+        COUNT(*) AS total_order_lines,
+        COUNT(DISTINCT order_id) AS distinct_orders,
+        COUNT(DISTINCT product_id) AS distinct_products,
+        SUM(CASE WHEN reordered = TRUE THEN 1 ELSE 0 END) AS reordered_count,
+        SUM(add_to_cart_order) AS total_cart_position_sum
+    FROM gold_fact_order_product
+)
+SELECT
+    'total_order_lines' AS measure,
+    s.total_order_lines AS silver_value,
+    g.total_order_lines AS gold_value,
+    s.total_order_lines - g.total_order_lines AS difference,
+    CASE WHEN s.total_order_lines = g.total_order_lines THEN 'PASS' ELSE 'REVIEW' END AS status
+FROM silver_measures s, gold_measures g
+
+UNION ALL
+
+SELECT
+    'distinct_orders',
+    s.distinct_orders,
+    g.distinct_orders,
+    s.distinct_orders - g.distinct_orders,
+    CASE WHEN s.distinct_orders = g.distinct_orders THEN 'PASS' ELSE 'REVIEW' END
+FROM silver_measures s, gold_measures g
+
+UNION ALL
+
+SELECT
+    'distinct_products',
+    s.distinct_products,
+    g.distinct_products,
+    s.distinct_products - g.distinct_products,
+    CASE WHEN s.distinct_products = g.distinct_products THEN 'PASS' ELSE 'REVIEW' END
+FROM silver_measures s, gold_measures g
+
+UNION ALL
+
+SELECT
+    'reordered_count',
+    s.reordered_count,
+    g.reordered_count,
+    s.reordered_count - g.reordered_count,
+    CASE WHEN s.reordered_count = g.reordered_count THEN 'PASS' ELSE 'REVIEW' END
+FROM silver_measures s, gold_measures g
+
+UNION ALL
+
+SELECT
+    'total_cart_position_sum',
+    s.total_cart_position_sum,
+    g.total_cart_position_sum,
+    s.total_cart_position_sum - g.total_cart_position_sum,
+    CASE WHEN s.total_cart_position_sum = g.total_cart_position_sum THEN 'PASS' ELSE 'REVIEW' END
+FROM silver_measures s, gold_measures g;
+```
+
+**Expected**: 5 PASS rows with all differences = 0
+
+**Note**: The `total_cart_position_sum` is a reconciliation checksum, not purchase quantity. `add_to_cart_order` represents basket position.
+
+### Gold Validation Summary
+
+| Query | Purpose | Expected Output |
+|-------|---------|-----------------|
+| 18 | Pre-constraint (dimensions) | 2 PASS rows |
+| 19 | Constraint checks (PK/FK) | 8 PASS rows with zero violations |
+| 20 (Set 1) | Table-level validation | 3 PASS rows with zero differences/issues |
+| 20 (Set 2) | Measure reconciliation | 5 PASS rows with zero differences |
+
+**Current Coverage Limits:**
+- Reports do not stop execution with `assert_true`
+- Check `(order_id, product_id)`, not the agreed `(order_id, add_to_cart_order)` grain key
+- Do not explicitly validate basket positions or reordered flag values
+- Query 19 reports intended constraints but does NOT register them in Catalog
+- Dimension reports do not prove aisle/department completeness or day-name mapping
+
+---
+
+## 4. Analytics Validation
 
 ### Purpose
-For every dashboard query, write the reconciliation or reasonableness check used to confirm the result.
+Validate business question outputs and dashboard KPIs.
 
----
+### Schema
+`workspace.instacart_analytics`
 
-### BQ1: Which products and departments are purchased most frequently?
+### Tables Created
 
-**Query Validation**:
+| Task | Output Tables | Business Question |
+|------|---------------|-------------------|
+| 21 | `analytics_top_departments`, `analytics_top_products` | Q1: Most frequent products/departments |
+| 22 | `analytics_day_hour_patterns`, `analytics_basket_size_by_day` | Q2: Purchasing by day/hour |
+| 23 | `analytics_reorder_rates` | Q3: Highest reorder behavior |
+| 24 | `analytics_product_pairs` | Q4: Products bought together |
+| 25 | `analytics_kpis` | All-data dashboard KPIs |
+
+### Consolidated Analytics Validation
+
+**Owner**: Maeve  
+**Name**: 25 - Analytics KPIs and Validation  
+**Purpose**: Build dashboard KPIs and perform sanity checks across all seven analytics tables  
+**Grain**: One KPI summary row and one validation summary row per analytics table
+
+#### Part 1: Build KPIs
+
 ```sql
--- Total purchases should equal fact table row count
-SELECT SUM(total_orders) AS sum_of_product_totals
-FROM (
-  SELECT 
-    p.product_name,
-    COUNT(*) AS total_orders
-  FROM instacart_gold.fact_order_items f
-  JOIN instacart_gold.dim_products p ON f.product_key = p.product_key
-  GROUP BY p.product_name
-);
--- Expected: 33,819,103 (matches fact table row count)
+CREATE OR REPLACE TABLE analytics_kpis AS
+SELECT
+  COUNT(DISTINCT order_id) AS total_orders,
+  COUNT(*) AS total_order_lines,
+  COUNT(DISTINCT product_id) AS total_products,
+  ROUND(
+    AVG(CASE WHEN reordered = TRUE THEN 1.0 ELSE 0.0 END),
+    4
+  ) AS overall_reorder_rate
+FROM workspace.instacart_gold.gold_fact_order_product;
 ```
 
-**Reasonableness Checks**:
-* Top product should be high-frequency item (e.g., bananas, milk)
-* Top department should be produce or dairy
-* Reorder rate should be 40-85% for top products
+#### Part 2: Validate All Seven Tables
 
-**Sample Validation**:
 ```sql
--- Check that Bananas (product_id 24852) is in top 10
-SELECT 
-  p.product_name,
-  COUNT(*) AS total_purchases,
-  RANK() OVER (ORDER BY COUNT(*) DESC) AS product_rank
-FROM instacart_gold.fact_order_items f
-JOIN instacart_gold.dim_products p ON f.product_key = p.product_key
-GROUP BY p.product_name
-HAVING p.product_name = 'Banana';
--- Expected: rank <= 10
-```
+WITH validation AS (
+  SELECT
+    'analytics_top_departments' AS table_name,
+    COUNT(*) AS row_count,
+    0 AS invalid_values
+  FROM analytics_top_departments
 
----
+  UNION ALL
 
-### BQ2: How does purchasing behavior change by day and hour?
+  SELECT
+    'analytics_top_products',
+    COUNT(*),
+    0
+  FROM analytics_top_products
 
-**Query Validation**:
-```sql
--- Total orders across all days/hours should equal distinct orders in fact
-SELECT 
-  SUM(total_orders) AS sum_across_time_buckets
-FROM (
-  SELECT 
-    o.day_of_week_name,
-    o.order_hour_of_day,
-    COUNT(DISTINCT f.order_key) AS total_orders
-  FROM instacart_gold.fact_order_items f
-  JOIN instacart_gold.dim_orders o ON f.order_key = o.order_key
-  GROUP BY o.day_of_week_name, o.order_hour_of_day
-);
--- Expected: 3,346,083 (total distinct orders)
-```
+  UNION ALL
 
-**Reasonableness Checks**:
-* Peak day should be Sunday (weekend shopping)
-* Peak hours should be 10-11 AM and 2-3 PM (lunch/afternoon)
-* Lowest activity: 2-5 AM
+  SELECT
+    'analytics_day_hour_patterns',
+    COUNT(*),
+    0
+  FROM analytics_day_hour_patterns
 
-**Sample Validation**:
-```sql
--- Confirm Sunday has most orders
-SELECT 
-  day_of_week_name,
-  COUNT(DISTINCT order_key) AS order_count,
-  RANK() OVER (ORDER BY COUNT(DISTINCT order_key) DESC) AS day_rank
-FROM instacart_gold.fact_order_items f
-JOIN instacart_gold.dim_orders o ON f.order_key = o.order_key
-GROUP BY day_of_week_name
-ORDER BY order_count DESC;
--- Expected: 'Sunday' has rank = 1
-```
+  UNION ALL
 
----
+  SELECT
+    'analytics_basket_size_by_day',
+    COUNT(*),
+    0
+  FROM analytics_basket_size_by_day
 
-### BQ3: Which products have the highest reorder behavior?
+  UNION ALL
 
-**Query Validation**:
-```sql
--- Reorder rate should be between 0% and 100%
-SELECT 
-  p.product_name,
-  ROUND(SUM(CAST(f.is_reordered AS INT)) * 100.0 / COUNT(*), 2) AS reorder_rate_pct
-FROM instacart_gold.fact_order_items f
-JOIN instacart_gold.dim_products p ON f.product_key = p.product_key
-GROUP BY p.product_name
-HAVING COUNT(*) >= 100
-ORDER BY reorder_rate_pct DESC
-LIMIT 10;
--- Expected: All reorder_rate_pct values between 0 and 100
-```
+  SELECT
+    'analytics_reorder_rates',
+    COUNT(*),
+    COUNT_IF(
+      reorder_rate IS NULL
+      OR reorder_rate < 0
+      OR reorder_rate > 1
+    )
+  FROM analytics_reorder_rates
 
-**Reasonableness Checks**:
-* Staples (bananas, milk, eggs) should have high reorder rates (70-85%)
-* Specialty items should have lower reorder rates (20-40%)
-* Average reorder rate across all products should be ~59% [TO CONFIRM]
+  UNION ALL
 
-**Sample Validation**:
-```sql
--- Global reorder rate
-SELECT 
-  SUM(CAST(is_reordered AS INT)) AS total_reorders,
-  COUNT(*) AS total_purchases,
-  ROUND(SUM(CAST(is_reordered AS INT)) * 100.0 / COUNT(*), 2) AS global_reorder_rate
-FROM instacart_gold.fact_order_items;
--- Expected: ~59% reorder rate
-```
+  SELECT
+    'analytics_product_pairs',
+    COUNT(*),
+    0
+  FROM analytics_product_pairs
 
----
+  UNION ALL
 
-### BQ4: What are the most common product pairs?
-
-**Query Validation**:
-```sql
--- Validate that product pairs are truly co-occurring in same orders
-WITH product_pairs AS (
-  SELECT 
-    f1.order_key,
-    f1.product_key AS product_1_key,
-    f2.product_key AS product_2_key
-  FROM instacart_gold.fact_order_items f1
-  JOIN instacart_gold.fact_order_items f2 ON f1.order_key = f2.order_key
-    AND f1.product_key < f2.product_key
-  LIMIT 1000
+  SELECT
+    'analytics_kpis',
+    COUNT(*),
+    COUNT_IF(
+      overall_reorder_rate IS NULL
+      OR overall_reorder_rate < 0
+      OR overall_reorder_rate > 1
+      OR total_orders <= 0
+      OR total_order_lines <= 0
+      OR total_products <= 0
+      OR total_orders > total_order_lines
+      OR total_products > total_order_lines
+    )
+  FROM analytics_kpis
 )
-SELECT 
-  pp.order_key,
-  pp.product_1_key,
-  pp.product_2_key,
-  COUNT(DISTINCT f1.order_item_key) AS product_1_found,
-  COUNT(DISTINCT f2.order_item_key) AS product_2_found
-FROM product_pairs pp
-JOIN instacart_gold.fact_order_items f1 
-  ON pp.order_key = f1.order_key AND pp.product_1_key = f1.product_key
-JOIN instacart_gold.fact_order_items f2 
-  ON pp.order_key = f2.order_key AND pp.product_2_key = f2.product_key
-GROUP BY pp.order_key, pp.product_1_key, pp.product_2_key
-HAVING product_1_found = 0 OR product_2_found = 0;
--- Expected: 0 rows (all pairs should have both products in the order)
+SELECT
+  table_name,
+  row_count,
+  invalid_values,
+  CASE
+    WHEN row_count > 0
+      AND invalid_values = 0
+      AND (
+        table_name <> 'analytics_kpis'
+        OR row_count = 1
+      )
+    THEN 'PASS'
+    ELSE 'REVIEW'
+  END AS status
+FROM validation
+ORDER BY table_name;
 ```
 
-**Reasonableness Checks**:
-* Top pairs should be complementary items (e.g., bananas + strawberries, milk + eggs)
-* Pairs should come from same department or related categories
-* Minimum occurrence threshold (e.g., 100 orders) filters noise
+**Expected**: 7 PASS rows
+
+**What These Checks Validate:**
+- All 6 business-question outputs have rows
+- `analytics_reorder_rates`: Rate is non-null and between 0 and 1
+- `analytics_kpis`: Exactly one row; positive counts; valid overall rate; distinct orders/products ≤ product lines
+
+**What These Checks Do NOT Validate:**
+- Individual output keys, measures, or null values
+- Complete reconciliation with Gold
+- Limits, thresholds, or ranking logic
+- Freshness or completeness
 
 ---
 
-## 5. Pre-Aggregated Analytics Tables (Gold Layer)
+## 5. Validation Best Practices
 
-### gold_product_summary
+### Run Validation After Each Layer
 
-**Validation**:
+1. **Bronze validation** → before Silver ingestion
+2. **Silver validation** → before Gold transformation
+3. **Gold validation (3 queries)** → before Analytics build
+4. **Analytics validation** → before dashboard refresh
+
+### Status Interpretation
+
+* **PASS**: All checks = 0, safe to proceed
+* **REVIEW**: One or more issues detected:
+  - Investigate root cause
+  - Check if intentional (documented exclusions)
+  - Fix upstream if data quality issue
+  - Update expected values if business rules changed
+
+### Log Results
+
+Track validation history in a dedicated log table:
+
 ```sql
--- Row count should equal number of distinct products
-SELECT 
-  (SELECT COUNT(*) FROM instacart_gold.gold_product_summary) AS summary_count,
-  (SELECT COUNT(DISTINCT product_key) FROM instacart_gold.fact_order_items) AS fact_distinct_products,
-  CASE WHEN 
-    (SELECT COUNT(*) FROM instacart_gold.gold_product_summary) = 
-    (SELECT COUNT(DISTINCT product_key) FROM instacart_gold.fact_order_items)
-  THEN 'PASS' ELSE 'FAIL' END AS validation_status;
+CREATE TABLE IF NOT EXISTS workspace.instacart_gold.validation_log (
+  run_timestamp TIMESTAMP,
+  layer STRING,
+  table_name STRING,
+  check_type STRING,
+  status STRING,
+  issue_count BIGINT,
+  notes STRING
+);
 ```
 
-### gold_customer_behavior
+### Alert on Failures
 
-**Validation**:
-```sql
--- Row count should equal number of distinct customers
-SELECT 
-  (SELECT COUNT(*) FROM instacart_gold.gold_customer_behavior) AS summary_count,
-  (SELECT COUNT(DISTINCT customer_key) FROM instacart_gold.fact_order_items) AS fact_distinct_customers,
-  CASE WHEN 
-    (SELECT COUNT(*) FROM instacart_gold.gold_customer_behavior) = 
-    (SELECT COUNT(DISTINCT customer_key) FROM instacart_gold.fact_order_items)
-  THEN 'PASS' ELSE 'FAIL' END AS validation_status;
-```
+* Email/Slack notification on critical failures
+* Stop pipeline on referential integrity violations (REVIEW in Gold FK checks)
+* Continue with warnings for minor issues (row_difference in Silver)
 
-### gold_temporal_patterns
+### Document Exceptions
 
-**Validation**:
-```sql
--- Row count should equal 7 days * 24 hours = 168 combinations
-SELECT 
-  COUNT(*) AS temporal_combinations,
-  CASE WHEN COUNT(*) = 168 THEN 'PASS' ELSE 'FAIL' END AS validation_status
-FROM instacart_gold.gold_temporal_patterns;
-```
+* If a validation check returns REVIEW, document WHY
+* Add exclusion logic to transformation queries if intentional
+* Update expected values in this document if business rules change
+* Version control validation queries in project repository
+
 
 ---
 
-## 6. Validation Evidence Log
-
-### 6.1 Bronze Layer Validation
-
-| Layer / Query | Check | Expected | Actual | Status | Owner | Date |
-|---|---|---|---|---|---|---|
-| Bronze / orders | Row count vs source | 3,421,083 | [TBD] | PENDING | Tina | [TBD] |
-| Bronze / products | Row count vs source | 49,688 | [TBD] | PENDING | Tina | [TBD] |
-| Bronze / order_products_prior | Row count vs source | ~32.4M | [TBD] | PENDING | Tina | [TBD] |
-| Bronze / order_products_train | Row count vs source | ~1.4M | [TBD] | PENDING | Tina | [TBD] |
-| Bronze / orders | Null order_id | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Bronze / products | Null product_id | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Bronze / orders | Duplicate order_id | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Bronze / products | Duplicate product_id | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Bronze / all tables | Malformed rows (_rescued_data) | 0 | [TBD] | PENDING | Tina | [TBD] |
-
----
-
-### 6.2 Silver Layer Validation
-
-| Layer / Query | Check | Expected | Actual | Status | Owner | Date |
-|---|---|---|---|---|---|---|
-| Silver / order_products | Bronze → Silver row count | 33,819,103 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / order_products | Null foreign keys | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / order_products | Duplicate (order_id, product_id) | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / orders | Invalid order_hour_of_day | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / orders | Invalid order_dow | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / order_products | Invalid add_to_cart_order | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / order_products | Invalid reordered flag | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / orders | Invalid eval_set values | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / order_products | Orphan orders (missing in orders table) | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / order_products | Orphan products (missing in products table) | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / products | Orphan aisles | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Silver / products | Orphan departments | 0 | [TBD] | PENDING | Tina | [TBD] |
-
----
-
-### 6.3 Gold Layer Validation
-
-| Layer / Query | Check | Expected | Actual | Status | Owner | Date |
-|---|---|---|---|---|---|---|
-| Gold / fact_order_items | Silver → Gold row count | 33,819,103 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_products | Duplicate product_key | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_customers | Duplicate customer_key | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_orders | Duplicate order_key | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_products | Primary key count | 49,687 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_customers | Primary key count | 206,209 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_orders | Primary key count | 3,346,083 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / fact_order_items | Duplicate order_item_key | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / fact_order_items | Duplicate (order_key, product_key) | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / fact_order_items | Null foreign keys | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / fact → dim_products | Orphan product_key | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / fact → dim_orders | Orphan order_key | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / fact → dim_customers | Orphan customer_key | 0 | [TBD] | PENDING | Tina | [TBD] |
-| Gold / fact_order_items | Total reorder count matches Silver | [TBD] | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_customers | Pre-aggregated total_orders accuracy | Sample match | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_orders | day_of_week_name derivation | Correct mapping | [TBD] | PENDING | Tina | [TBD] |
-| Gold / dim_orders | time_of_day_bucket derivation | Correct ranges | [TBD] | PENDING | Tina | [TBD] |
-| Gold / gold_product_summary | Row count vs fact distinct products | Match | [TBD] | PENDING | Tina | [TBD] |
-| Gold / gold_customer_behavior | Row count vs fact distinct customers | Match | [TBD] | PENDING | Tina | [TBD] |
-| Gold / gold_temporal_patterns | Row count (days * hours) | 168 | [TBD] | PENDING | Tina | [TBD] |
-
----
-
-### 6.4 Business Question Validation
-
-| Business Question | Check | Expected | Actual | Status | Owner | Date |
-|---|---|---|---|---|---|---|
-| BQ1 | Sum of product totals = fact row count | 33,819,103 | [TBD] | PENDING | Tina | [TBD] |
-| BQ1 | Top product is high-frequency staple | Yes | [TBD] | PENDING | Tina | [TBD] |
-| BQ1 | 'Banana' in top 10 products | Rank ≤ 10 | [TBD] | PENDING | Tina | [TBD] |
-| BQ2 | Sum of orders by time = total orders | 3,346,083 | [TBD] | PENDING | Tina | [TBD] |
-| BQ2 | Peak day is Sunday | Rank = 1 | [TBD] | PENDING | Tina | [TBD] |
-| BQ2 | Peak hours are 10-11 AM, 2-3 PM | Yes | [TBD] | PENDING | Tina | [TBD] |
-| BQ3 | Reorder rates between 0-100% | Yes | [TBD] | PENDING | Tina | [TBD] |
-| BQ3 | Global reorder rate ~59% | ~59% | [TBD] | PENDING | Tina | [TBD] |
-| BQ3 | Staples (bananas, milk) have high reorder | 70-85% | [TBD] | PENDING | Tina | [TBD] |
-| BQ4 | Product pairs exist in same orders | All valid | [TBD] | PENDING | Tina | [TBD] |
-| BQ4 | Top pairs are complementary items | Yes | [TBD] | PENDING | Tina | [TBD] |
-
----
-
-## 7. Validation Automation
-
-### Recommended Approach
-
-**Option 1: Great Expectations**
-```python
-import great_expectations as gx
-
-# Define expectations for fact_order_items
-expectations = [
-    gx.expect_column_values_to_not_be_null(column="order_key"),
-    gx.expect_column_values_to_not_be_null(column="product_key"),
-    gx.expect_column_values_to_be_between(column="add_to_cart_order", min_value=1),
-    gx.expect_column_values_to_be_in_set(column="is_reordered", value_set=[0, 1])
-]
-```
-
-**Option 2: Delta Live Tables Expectations**
-```python
-@dlt.table(
-  name="fact_order_items",
-  expect_or_fail={
-    "valid_order_key": "order_key IS NOT NULL",
-    "valid_product_key": "product_key IS NOT NULL",
-    "valid_reorder_flag": "is_reordered IN (0, 1)"
-  }
-)
-def create_fact_order_items():
-    return spark.table("instacart_silver.order_products")
-```
-
-**Option 3: Custom Validation Notebook**
-* Create `notebooks/validation/run_all_checks.py`
-* Execute all validation queries
-* Write results to `instacart_gold.validation_log` table
-* Alert on failures via email/Slack
-
----
-
-## 8. Validation Best Practices
-
-1. **Run validation after each layer transformation**
-   * Bronze validation → before Silver ingestion
-   * Silver validation → before Gold transformation
-   * Gold validation → before dashboard refresh
-
-2. **Log validation results to a table**
-   * Track validation history over time
-   * Identify patterns in data quality issues
-   * Audit trail for compliance
-
-3. **Set up alerting for validation failures**
-   * Email/Slack notification on critical failures
-   * Stop pipeline on referential integrity violations
-   * Continue with warnings for minor issues
-
-4. **Document exceptions**
-   * If a validation check fails, document WHY
-   * Add exclusion logic if intentional
-   * Update expected values if business rules change
-
-5. **Version control validation queries**
-   * Store validation SQL in `notebooks/validation/` folder
-   * Track changes to validation logic
-   * Reuse validation queries across pipeline runs
-
----
-
-**Last Updated**: September 2, 2026  
-**Document Owner**: Tina (Cristina)  
-**Project**: Engineer Instacart  
-**Next Review**: [After first pipeline run]
+**Last Updated**: [Date of pipeline run]  
+**Document Owner**: Team (Ina - Silver, Cath - Gold, Maeve - Analytics)  
+**Project**: Instacart Data Pipeline  
+**Next Review**: After first complete pipeline run
