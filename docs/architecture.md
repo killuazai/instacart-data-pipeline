@@ -88,7 +88,7 @@ Source data consists of six CSV files from Cloudflare R2 storage representing In
 
 **Purpose**: Ingest raw CSV data with minimal transformation. Preserve source integrity.
 
-**Catalog/Schema**: `workspace.default`
+**Catalog/Schema**: `workspace.instacart_bronze`
 
 **Ingestion Method**: Databricks `read_files()` with Auto Loader
 
@@ -187,7 +187,7 @@ Otherwise: `status = 'FAIL'`
 
 **Purpose**: Clean, standardize, and validate Bronze data. Fix data types, filter invalid records.
 
-**Catalog/Schema**: `workspace.default`
+**Catalog/Schema**: `workspace.instacart_silver`
 
 ### Silver Tables
 
@@ -492,13 +492,6 @@ Otherwise: `status = 'REVIEW'`
 
 **Design Note**: Unlike Bronze validation (uses `FAIL` and `assert_true` to stop the pipeline), Gold validation uses `PASS`/`REVIEW` and is informational. No validation query halts execution on failure.
 
-**Coverage Limitations**:
-* Reports do not stop execution with `assert_true`
-* Checks `(order_id, product_id)`, not the agreed `(order_id, add_to_cart_order)` grain key
-* Does not explicitly validate `add_to_cart_order` values or `reordered` boolean integrity
-* Query 19 reports intended constraints but does not register them in Unity Catalog
-* Dimension reports do not prove aisle/department names are complete or day-name mapping is correct
-
 ---
 
 ## 6. Analytics Layer
@@ -797,11 +790,6 @@ order_products__train.csv   → bronze_order_products_train  →   (union with p
 ## 11. Known Issues & Limitations
 
 ### Data Quality Issues
-
-**3 Orphan Products** (will check)
-* **Description**: `silver_order_products` contains 3 product IDs not in `silver_products`
-* **Impact**: 3 rows filtered from Gold layer during FK validation
-* **Status**: Documented; upstream source data issue
 
 **75,000 Orders Dropped**
 * **Description**: Orders with NULL `user_id` or `order_id`

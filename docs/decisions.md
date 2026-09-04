@@ -48,8 +48,12 @@ Each decision is documented with:
   * Bronze layer serves as permanent raw backup
 * ⚠️ **Negative**:
   * Additional storage cost (~3x data duplication)
-  * Longer total pipeline runtime (~10 minutes)
   * More tables to manage and document
+
+**Source**:
+* Bronze notebook: Schema creation and table structure
+* Silver notebook: Data cleaning and type conversions
+* Gold notebook: Dimensional model DDL
 
 **Status**: Active  
 **Date**: 2026-09-01
@@ -88,6 +92,11 @@ Each decision is documented with:
   * 3 orphan products required filtering before FK constraint application
   * Cannot load data violating constraints (strict enforcement)
 
+**Source**:
+* Gold notebook: Cell with ALTER TABLE ADD CONSTRAINT statements for PK and FK
+* Gold notebook: Constraint validation query (Query 18 - pre-constraint checks)
+* Decision implementation: Lines applying CONSTRAINT to dim_order, dim_product, fact_order_products
+
 **Status**: Active  
 **Date**: 2026-09-03
 
@@ -109,7 +118,7 @@ Each decision is documented with:
 
 **Rationale**:
 * **Clarity**: Clear distinction between intermediate (Bronze/Silver) and production (Gold) tables
-* **Access Control**: Can grant read-only access to Gold schema for analysts
+* or analysts
 * **Naming Consistency**: Gold tables follow clean naming convention (dim_, fact_) without conflicting with legacy tables
 * **Migration Path**: Enables phased migration from old (workspace.default) to new (workspace.instacart_gold)
 
@@ -122,7 +131,10 @@ Each decision is documented with:
 * ⚠️ **Negative**:
   * Cross-schema queries required when joining Bronze/Silver with Gold
   * Additional schema management overhead
-  * Legacy tables in workspace.default still exist (potential confusion)
+
+**Source**:
+* Gold notebook: CREATE SCHEMA workspace.instacart_gold statement
+* Gold notebook: All CREATE TABLE statements with fully qualified names (workspace.instacart_gold.dim_*, workspace.instacart_gold.fact_*)
 
 **Status**: Active  
 **Date**: 2026-09-03
@@ -166,6 +178,11 @@ Each decision is documented with:
 * Need to track customer segmentation changes (SCD Type 2)
 * Storage cost of repeated user_id becomes significant
 
+**Source**:
+* Gold notebook: CREATE TABLE dim_order with user_id, order_number, days_since_prior_order columns
+* Gold notebook: No CREATE TABLE dim_customer statement (intentionally omitted)
+* Data model documentation: dim_order schema includes customer attributes
+
 **Status**: Active (under review for Phase 2)  
 **Date**: 2026-09-03
 
@@ -202,6 +219,11 @@ Each decision is documented with:
   * FK references must include both columns (not applicable here)
   * Slightly more complex Unity Catalog constraint syntax
 
+**Source**:
+* Gold notebook: CREATE TABLE fact_order_products with PRIMARY KEY (order_id, add_to_cart_order)
+* Gold notebook: ALTER TABLE ADD CONSTRAINT for composite PK
+* No surrogate key generation logic (intentionally absent)
+
 **Status**: Active  
 **Date**: 2026-09-03
 
@@ -217,9 +239,9 @@ Each decision is documented with:
 * Query performance vs. normalization trade-off
 
 **Alternatives Considered**:
-1. **Snowflake schema**: Separate dim_aisle and dim_department tables
-2. **Denormalized star (chosen)**: Embed hierarchy in dim_product
-3. **Hybrid**: Keep separate tables but also embed names
+
+1. **Denormalized star (chosen)**: Embed hierarchy in dim_product
+2. **Hybrid**: Keep separate tables but also embed names
 
 **Rationale**:
 * **Query Performance**: Avoid additional joins for common queries
@@ -238,6 +260,11 @@ Each decision is documented with:
   * Aisle/department names repeated across products (storage cost)
   * If aisle/department names change, must update multiple rows
   * Slightly larger dimension table (minimal impact)
+
+**Source**:
+* Gold notebook: CREATE TABLE dim_product with aisle_name, department_name columns (denormalized)
+* Gold notebook: JOIN to silver_aisles and silver_departments during dim_product population
+* No separate dim_aisle or dim_department tables created
 
 **Status**: Active  
 **Date**: 2026-09-03
@@ -281,6 +308,11 @@ Each decision is documented with:
 * Evening: 18-21
 * Night: 22-23
 
+**Source**:
+* Gold notebook: CREATE TABLE dim_order with day_of_week_name and time_of_day_bucket columns
+* Gold notebook: CASE expression for order_dow → day_of_week_name mapping (0='Sunday', 1='Monday', ...)
+* Gold notebook: CASE expression for order_hour_of_day → time_of_day_bucket (WHEN order_hour_of_day BETWEEN 0 AND 5 THEN 'Early Morning', ...)
+
 **Status**: Active  
 **Date**: 2026-09-03
 
@@ -316,12 +348,17 @@ Each decision is documented with:
   * Cannot easily separate prior/train after Silver (must filter by source_system)
   * If prior/train have different quality issues, harder to isolate
 
+**Source**:
+* Silver notebook (Ina): CREATE TABLE silver_order_products with UNION ALL
+* Silver notebook: SELECT * FROM bronze_order_products_prior ... UNION ALL ... SELECT * FROM bronze_order_products_train
+* Silver notebook: source_system column ('prior' or 'train') to track origin
+
 **Status**: Active  
 **Date**: 2026-09-02
 
 ---
 
-## Decision 9: Handle 3 Orphan Products via Filtering
+## Decision 9: Handle 3 Orphan Products via Filtering (will verify)
 
 **Decision**: Filter 3 orphan products (product_id not in silver_products) when creating Gold fact table
 
@@ -352,54 +389,19 @@ Each decision is documented with:
   * Root cause not fixed (upstream source data issue)
   * Must remember to filter in future pipeline runs
 
+**Source**:
+* Silver notebook (Ina): Validation query identifying 3 orphan products (product_id in order_products but not in products)
+* Gold notebook (Cath): CREATE TABLE fact_order_products with WHERE clause filtering orphans
+* Gold notebook: WHERE product_id IN (SELECT product_id FROM dim_product) to enforce FK
+* Data dictionary: Documented in silver_order_products quality issues
+
 **Status**: Active (documented as known issue)  
 **Date**: 2026-09-03
 
 ---
 
-## Decision 10: No Analytics Aggregation Tables in Gold Schema
 
-**Decision**: Query fact/dimension tables directly for analytics instead of creating pre-aggregated tables
-
-**Context**:
-* Legacy implementation had gold_product_popularity, gold_temporal_patterns, gold_reorder_behavior
-* New implementation (workspace.instacart_gold) does not include these
-* Alternative: Create materialized aggregate tables for dashboard
-
-**Alternatives Considered**:
-1. **No aggregation tables (chosen)**: Direct fact/dimension queries
-2. **Materialized aggregates**: gold_product_popularity, etc.
-3. **Materialized views**: Databricks materialized views
-
-**Rationale**:
-* **Query Performance**: Fact table (33.8M rows) performs well with serverless compute
-* **Simplicity**: Fewer tables to manage and maintain
-* **Flexibility**: Ad-hoc queries not limited to pre-computed aggregates
-* **Dashboard Performance**: Sub-second query times without aggregates
-* **Delta Lake Optimization**: Delta caching and Z-ordering provide performance
-
-**Consequences**:
-* ✅ **Positive**:
-  * Simpler data model (3 tables vs. 6+)
-  * Full analytical flexibility (not limited to pre-defined aggregates)
-  * No aggregate refresh logic needed
-  * Fewer tables to document and maintain
-* ⚠️ **Negative**:
-  * Dashboard queries scan full fact table (33.8M rows)
-  * If performance degrades, may need to add aggregates in Phase 2
-  * Repeated queries recompute aggregations
-
-**Future Consideration**: Add materialized aggregates if:
-* Dashboard query times exceed 2-3 seconds
-* Specific aggregations used frequently (product popularity, hourly patterns)
-* Concurrent dashboard usage increases significantly
-
-**Status**: Active (monitoring performance)  
-**Date**: 2026-09-03
-
----
-
-## Decision 11: Preserve days_since_prior_order NULL Values
+## Decision 10: Preserve days_since_prior_order NULL Values
 
 **Decision**: Keep `days_since_prior_order` as NULL for first customer orders instead of replacing with 0 or -1
 
@@ -428,12 +430,18 @@ Each decision is documented with:
   * Must handle NULLs in aggregations (AVG ignores NULLs by default, which is correct)
   * Queries filtering by this column must consider NULL case
 
+**Source**:
+* Bronze notebook (Nadine): days_since_prior_order loaded as-is from orders.csv (preserving NULL)
+* Silver notebook (Ina): days_since_prior_order passed through without transformation
+* Gold notebook (Cath): dim_order.days_since_prior_order preserved as nullable column
+* No COALESCE or IFNULL transformation applied at any layer
+
 **Status**: Active  
 **Date**: 2026-09-02
 
 ---
 
-## Decision 12: Convert reordered from INT to BOOLEAN in Gold
+## Decision 11: Convert reordered from INT to BOOLEAN in Gold
 
 **Decision**: Change `reordered` from INT (0/1) to BOOLEAN (TRUE/FALSE) in fact table
 
@@ -462,6 +470,12 @@ Each decision is documented with:
   * Must CAST to INT for aggregations: `SUM(CAST(reordered AS INT))`
   * Slight syntax overhead in aggregate queries
 
+**Source**:
+* Bronze notebook (Nadine): reordered loaded as INT from order_products__prior.csv and order_products__train.csv
+* Silver notebook (Ina): reordered preserved as INT
+* Gold notebook (Cath): CREATE TABLE fact_order_products with reordered BOOLEAN
+* Gold notebook: CAST(reordered AS BOOLEAN) in INSERT statement
+
 **Status**: Active  
 **Date**: 2026-09-03
 
@@ -480,13 +494,12 @@ Each decision is documented with:
 | 7 | Derived Temporal Attributes | Gold | Active | ✅ High |
 | 8 | UNION Prior + Train | Silver | Active | ✅ High |
 | 9 | Filter Orphan Products | Gold | Active (issue) | ⚠️ Low |
-| 10 | No Aggregation Tables | Gold | Active (monitor) | ⚠️ Medium |
-| 11 | Preserve NULL Values | Silver/Gold | Active | ✅ Low |
-| 12 | BOOLEAN for reordered | Gold | Active | ✅ Low |
+| 10 | Preserve NULL Values | Silver/Gold | Active | ✅ Low |
+| 11 | BOOLEAN for reordered | Gold | Active | ✅ Low |
 
 ---
 
-## Decision 13: Bronze as Typed Source Copy (No Transformation)
+## Decision 12: Bronze as Typed Source Copy (No Transformation)
 
 **Decision**: Bronze layer performs 1:1 CSV ingestion with explicit schemas, no data cleaning or transformation
 
@@ -518,6 +531,14 @@ Each decision is documented with:
   * Cannot query Bronze directly for analytics (must go through Silver)
   * Validation detects issues but doesn't fix them
 
+**Source**:
+* Bronze notebook (Nadine): CREATE SCHEMA workspace.instacart_bronze
+* Bronze notebook: Six CREATE TABLE statements with explicit schemas (aisles, departments, products, orders, order_products_prior, order_products_train)
+* Bronze notebook: read_files() calls with format='csv', header=True, explicit column types
+* Bronze notebook: No TRIM, REPLACE, COALESCE, or other transformations in SELECT
+* Bronze notebook: _rescued_data column included in all tables to capture parsing failures
+* Bronze notebook: bronze_validation cell - consolidated validation query checking row counts and _rescued_data IS NULL
+
 **Implementation Note** (Nadine):
 * Bronze validation uses `assert_true` to stop pipeline on failure
 * Rescued data column must be NULL (no parser errors)
@@ -529,7 +550,7 @@ Each decision is documented with:
 
 ---
 
-## Decision 14: One Bronze Table Per CSV File
+## Decision 13: One Bronze Table Per CSV File
 
 **Decision**: Create one Bronze table for each source CSV file (6 tables total)
 
@@ -570,13 +591,18 @@ Each decision is documented with:
 | `order_products_prior` | order_products__prior.csv | One product line (prior orders) | 32,434,489 |
 | `order_products_train` | order_products__train.csv | One product line (train orders) | 1,384,617 |
 
+**Source**:
+* Bronze notebook (Nadine): Six separate CREATE TABLE statements (bronze_aisles, bronze_departments, bronze_products, bronze_orders, bronze_order_products_prior, bronze_order_products_train)
+* Bronze notebook: Six separate read_files() calls to /Volumes/.../aisles.csv, departments.csv, products.csv, orders.csv, order_products__prior.csv, order_products__train.csv
+* Bronze notebook: bronze_validation cell checking row counts for all 6 tables individually
+
 **Status**: Active  
 **Date**: 2026-09-02  
 **Owner**: Nadine
 
 ---
 
-## Decision 15: Fix Products CSV Quote/Escape Handling
+## Decision 14: Fix Products CSV Quote/Escape Handling
 
 **Decision**: Configure CSV reader with explicit quote and escape characters for Products file
 
@@ -617,13 +643,19 @@ read_files(
   * Must remember to apply this config on every Products reload
   * Other CSVs don't need this (file-specific handling)
 
+**Source**:
+* Bronze notebook (Nadine): CREATE TABLE bronze_products cell
+* Bronze notebook: read_files() call for products.csv with quote='"', escape='"' parameters
+* Bronze notebook: Comment explaining quote/escape configuration for embedded quotes in product names
+* Data dictionary: Documented in bronze_products description
+
 **Status**: Active  
 **Date**: 2026-09-02  
 **Owner**: Nadine
 
 ---
 
-## Decision 16: Fix Backslash Escaping Bug in Silver
+## Decision 15: Fix Backslash Escaping Bug in Silver
 
 **Decision**: Remove stray backslash characters from `product_name` in Silver layer
 
@@ -662,13 +694,19 @@ FROM bronze_products;
   * Bronze still contains backslashes (by design)
   * Must apply fix in every Silver refresh
 
+**Source**:
+* Silver notebook (Ina): CREATE TABLE silver_products cell
+* Silver notebook: REPLACE(product_name, CHR(92), '') AS product_name in SELECT statement
+* Silver notebook: Validation query detecting backslash characters (using INSTR)
+* Data dictionary: Documented in silver_products quality fixes
+
 **Status**: Active  
 **Date**: 2026-09-03  
 **Owner**: Ina
 
 ---
 
-## Decision 17: Silver Row Count Differences Are Expected
+## Decision 16: Silver Row Count Differences Are Expected
 
 **Decision**: Silver validation does NOT fail on row count differences from Bronze
 
@@ -704,15 +742,19 @@ FROM bronze_products;
   * Row count drop could hide bugs if not documented
   * Must manually track expected drops (e.g., 3 orphan products)
 
+**Source**:
+* Silver notebook (Ina): silver_validation cell - consolidated validation query
+* Silver notebook: Validation checks for PK uniqueness, NOT NULL, FK existence (NOT row count parity)
+* Silver notebook: WHERE clauses filtering invalid data (e.g., orphan products, out-of-range values)
+* Data dictionary: silver_validation query definition documenting quality checks (not row count checks)
+
 **Status**: Active  
 **Date**: 2026-09-03  
 **Owner**: Ina
 
 ---
 
-## Decision 18: Silver-to-Silver Dependencies
-
-**Decision**: Some Silver tables depend on other Silver tables (not just Bronze)
+## Decision 17: Silver-to-Silver Depension**: Some Silver tables depend on other Silver tables (not just Bronze)
 
 **Context**:
 * `silver_products` validates against `silver_aisles` and `silver_departments` (not Bronze versions)
@@ -756,13 +798,20 @@ silver_orders -----> silver_order_products
   * Must maintain explicit Job dependencies
   * Longer total Silver execution time (sequential not parallel)
 
+**Source**:
+* Silver notebook (Ina): CREATE TABLE silver_products with FK checks against silver_aisles and silver_departments
+* Silver notebook: CREATE TABLE silver_order_products with FK checks against silver_orders
+* Silver notebook: WHERE EXISTS (SELECT 1 FROM silver_aisles WHERE ...) and WHERE EXISTS (SELECT 1 FROM silver_departments WHERE ...)
+* Silver notebook: WHERE EXISTS (SELECT 1 FROM silver_orders WHERE ...)
+* Databricks Job configuration: Task dependencies defining silver_products depends_on [silver_aisles, silver_departments], silver_order_products depends_on [silver_orders]
+
 **Status**: Active  
 **Date**: 2026-09-03  
 **Owner**: Ina
 
 ---
 
-## Decision 19: Use INSTR() for Backslash Detection (Not LIKE)
+## Decision 18: Use INSTR() for Backslash Detection (Not LIKE)
 
 **Decision**: Use `INSTR(column, CHR(92)) > 0` to detect backslashes, not `LIKE`
 
@@ -806,13 +855,18 @@ WHERE INSTR(product_name, CHR(92)) > 0
 * Check other validation scripts for similar LIKE patterns with special characters
 * Use INSTR() or REGEXP for literal character matching, not LIKE
 
+**Source**:
+* Silver notebook (Ina): Backslash detection query using INSTR(product_name, CHR(92)) > 0
+* Silver notebook: Earlier version (incorrect) used LIKE CONCAT('%', CHR(92), '%') - now corrected
+* Silver notebook: Comment explaining why INSTR is preferred over LIKE for backslash detection
+
 **Status**: Active  
 **Date**: 2026-09-03  
 **Owner**: Ina
 
 ---
 
-## Decision 20: Comprehensive Multi-Stage Constraint Validation
+## Decision 19: Comprehensive Multi-Stage Constraint Validation
 
 **Decision**: Validate PK/FK constraints in three stages: pre-build, declarative, and final reconciliation
 
@@ -869,6 +923,12 @@ WHERE INSTR(product_name, CHR(92)) > 0
   * Longer pipeline execution time
   * Must run all three stages for full confidence
 
+**Source**:
+* Gold notebook (Cath): Query 18 cell - pre-constraint validation (PK uniqueness, null checks, required fields)
+* Gold notebook: ALTER TABLE ADD CONSTRAINT cells for PK and FK constraints on dim_order, dim_product, fact_order_products
+* Gold notebook: Query 20 cell - final validation (Silver-to-Gold reconciliation, measure accuracy, referential integrity)
+* Gold notebook: Three separate validation result outputs showing progression through validation stages
+
 **Status**: Active  
 **Date**: 2026-09-03  
 **Owner**: Cath
@@ -888,17 +948,16 @@ WHERE INSTR(product_name, CHR(92)) > 0
 | 7 | Derived Temporal Attributes | Gold | Active | ✅ High |
 | 8 | UNION Prior + Train | Silver | Active | ✅ High |
 | 9 | Filter Orphan Products | Gold | Active (issue) | ⚠️ Low |
-| 10 | No Aggregation Tables | Gold | Active (monitor) | ⚠️ Medium |
-| 11 | Preserve NULL Values | Silver/Gold | Active | ✅ Low |
-| 12 | BOOLEAN for reordered | Gold | Active | ✅ Low |
-| 13 | Bronze as Typed Source Copy | Bronze | Active | ✅ High |
-| 14 | One Table Per CSV | Bronze | Active | ✅ High |
-| 15 | Fix Products Quote/Escape | Bronze | Active | ✅ Medium |
-| 16 | Fix Backslash in Silver | Silver | Active | ✅ Low |
-| 17 | Silver Row Differences Expected | Silver | Active | ✅ Medium |
-| 18 | Silver-to-Silver Dependencies | Silver | Active | ✅ High |
-| 19 | Use INSTR() for Backslash | Silver | Active | ✅ Low |
-| 20 | Multi-Stage Constraint Validation | Gold | Active | ✅ High |
+| 10 | Preserve NULL Values | Silver/Gold | Active | ✅ Low |
+| 11 | BOOLEAN for reordered | Gold | Active | ✅ Low |
+| 12 | Bronze as Typed Source Copy | Bronze | Active | ✅ High |
+| 13 | One Table Per CSV | Bronze | Active | ✅ High |
+| 14 | Fix Products Quote/Escape | Bronze | Active | ✅ Medium |
+| 15 | Fix Backslash in Silver | Silver | Active | ✅ Low |
+| 16 | Silver Row Differences Expected | Silver | Active | ✅ Medium |
+| 17 | Silver-to-Silver Dependencies | Silver | Active | ✅ High |
+| 18 | Use INSTR() for Backslash | Silver | Active | ✅ Low |
+| 19 | Multi-Stage Constraint Validation | Gold | Active | ✅ High |
 
 ---
 

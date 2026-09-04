@@ -490,12 +490,11 @@ Every team member contributed essential skills and expertise:
 * **Cath** created the analytical model with Gold dimensional design
 * **Maeve** delivered business value with the dashboard
 * **Angela** maintained organization and structure
-* **Tina** documented the entire project for future reference
+* **Tina** create the star schema and documented the project for future reference
 
 ---
 
 **Project**: Engineer Instacart  
 **Team**: FTW Data Engineering Batch 12  
 **Completion Date**: September 2026  
-**Document Owner**: Tina (Cristina)  
 **Last Updated**: September 2, 2026

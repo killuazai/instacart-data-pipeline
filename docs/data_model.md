@@ -187,7 +187,7 @@ The `product_hierarchy` column provides a full breadcrumb path:
 | `order_dow` | INT | Yes | Day of week (0=Sunday, 6=Saturday) |
 | `day_of_week_name` | STRING | Yes | 'Sunday', 'Monday', etc. |
 | `order_hour_of_day` | INT | Yes | Hour (0-23) |
-| `time_of_day_bucket` | STRING | Yes | 'Early Morning', 'Morning', etc. |
+| `time_of_day_bucket` | STRING | Yes | 'Night (12AM-6AM)', 'Morning (6AM-12PM)', etc. |
 | `days_since_prior_order` | DOUBLE | Yes | Days since last order (NULL for first) |
 | `loaded_at` | TIMESTAMP | Yes | Load timestamp |
 
@@ -227,11 +227,10 @@ Derived from `order_hour_of_day`:
 
 | Hour Range | time_of_day_bucket |
 |------------|--------------------|
-| 0-5 | Early Morning |
-| 6-11 | Morning |
-| 12-17 | Afternoon |
-| 18-21 | Evening |
-| 22-23 | Night |
+| 0-5 | Night (12AM-6AM) |
+| 6-11 | Morning (6AM-12PM) |
+| 12-17 | Afternoon (12PM-6PM) |
+| 18-23 | Evening (6PM-12AM) |
 
 **Benefits**:
 * Simplified temporal aggregation
