@@ -1,4 +1,3 @@
-%sql
 -- Owner: Nadine
 -- Name: 01 - Setup
 -- Purpose: Create the Bronze, Silver, Gold, and Analytics schemas and validate the six approved Instacart source CSV files.

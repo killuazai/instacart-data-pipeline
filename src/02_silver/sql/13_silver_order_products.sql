@@ -21,7 +21,7 @@ SELECT
 FROM order_products_combined op
 WHERE op.order_id IS NOT NULL
   AND op.product_id IS NOT NULL
-  AND EXISTS (SELECT 1 FROM orders_clean o WHERE o.order_id = op.order_id);
+  AND EXISTS (SELECT 1 FROM products_clean p WHERE p.product_id = op.product_id);
 
 DESCRIBE TABLE order_products_clean;
 
