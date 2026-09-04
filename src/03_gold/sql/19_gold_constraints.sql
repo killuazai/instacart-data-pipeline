@@ -1,5 +1,5 @@
 -- Owner: Cath
--- Name: 19 - Gold Constraints
+-- Name: 19_gold_constraints.sql
 -- Purpose: Validate PK/FK constraints across all gold tables.
 -- Grain: One validation summary row per constraint check.
 

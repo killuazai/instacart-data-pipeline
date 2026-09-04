@@ -1,5 +1,5 @@
 -- Owner: Cath
--- Name: 17 - Gold Fact Order Product
+-- Name: 17_gold_fact_order_product.sql
 -- Purpose: Build the fact table linking orders and products with behavioral metrics.
 -- Grain: One row per product line in one order, uniquely identified by (order_id, product_id).
 

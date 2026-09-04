@@ -1,5 +1,5 @@
 -- Owner: Cath
--- Name: 15 - Gold Dim Product
+-- Name: 15_gold_dim_product.sql
 -- Purpose: Build a product dimension with denormalized aisle and department names.
 -- Grain: One row per product, uniquely identified by product_id.
 

@@ -1,9 +1,8 @@
 -- Owner: Cath
--- Name: 20 - Validate Gold Final
--- Purpose: Comprehensive gold validation - keys, integrity, silver-to-gold reconciliation, and measures.
--- Grain: Two result sets - (1) table-level validation, (2) measure reconciliation.
+-- Name: 20a - Gold Final Validation (Table-Level)
+-- Purpose: Table-level validation - keys, row counts, referential integrity.
+-- Grain: One validation summary row per Gold table.
 
--- PART 1: Table-level validation (keys, row counts, referential integrity)
 WITH validation AS (
 
     SELECT
@@ -75,70 +74,3 @@ SELECT
     END AS status
 FROM validation
 ORDER BY table_name;
-
--- PART 2: Measure reconciliation (aggregate validation)
-WITH silver_measures AS (
-    SELECT
-        COUNT(*) AS total_order_lines,
-        COUNT(DISTINCT order_id) AS distinct_orders,
-        COUNT(DISTINCT product_id) AS distinct_products,
-        SUM(CASE WHEN reordered = TRUE THEN 1 ELSE 0 END) AS reordered_count,
-        SUM(add_to_cart_order) AS total_cart_position_sum
-    FROM instacart_silver.order_products_clean
-),
-gold_measures AS (
-    SELECT
-        COUNT(*) AS total_order_lines,
-        COUNT(DISTINCT order_id) AS distinct_orders,
-        COUNT(DISTINCT product_id) AS distinct_products,
-        SUM(CASE WHEN reordered = TRUE THEN 1 ELSE 0 END) AS reordered_count,
-        SUM(add_to_cart_order) AS total_cart_position_sum
-    FROM gold_fact_order_product
-)
-SELECT
-    'total_order_lines' AS measure,
-    s.total_order_lines AS silver_value,
-    g.total_order_lines AS gold_value,
-    s.total_order_lines - g.total_order_lines AS difference,
-    CASE WHEN s.total_order_lines = g.total_order_lines THEN 'PASS' ELSE 'REVIEW' END AS status
-FROM silver_measures s, gold_measures g
-
-UNION ALL
-
-SELECT
-    'distinct_orders',
-    s.distinct_orders,
-    g.distinct_orders,
-    s.distinct_orders - g.distinct_orders,
-    CASE WHEN s.distinct_orders = g.distinct_orders THEN 'PASS' ELSE 'REVIEW' END
-FROM silver_measures s, gold_measures g
-
-UNION ALL
-
-SELECT
-    'distinct_products',
-    s.distinct_products,
-    g.distinct_products,
-    s.distinct_products - g.distinct_products,
-    CASE WHEN s.distinct_products = g.distinct_products THEN 'PASS' ELSE 'REVIEW' END
-FROM silver_measures s, gold_measures g
-
-UNION ALL
-
-SELECT
-    'reordered_count',
-    s.reordered_count,
-    g.reordered_count,
-    s.reordered_count - g.reordered_count,
-    CASE WHEN s.reordered_count = g.reordered_count THEN 'PASS' ELSE 'REVIEW' END
-FROM silver_measures s, gold_measures g
-
-UNION ALL
-
-SELECT
-    'total_cart_position_sum',
-    s.total_cart_position_sum,
-    g.total_cart_position_sum,
-    s.total_cart_position_sum - g.total_cart_position_sum,
-    CASE WHEN s.total_cart_position_sum = g.total_cart_position_sum THEN 'PASS' ELSE 'REVIEW' END
-FROM silver_measures s, gold_measures g;

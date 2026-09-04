@@ -1,5 +1,5 @@
 -- Owner: Cath
--- Name: 16 - Gold Dim Order
+-- Name: 16_gold_dim_order.sql
 -- Purpose: Build an order dimension with customer and time attributes.
 -- Grain: One row per order, uniquely identified by order_id.
 
@@ -30,5 +30,3 @@ SELECT
 FROM instacart_silver.orders_clean;
 
 DESCRIBE TABLE gold_dim_order;
-
-SELECT * FROM gold_dim_order;
