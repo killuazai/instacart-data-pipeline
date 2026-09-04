@@ -150,7 +150,7 @@ Add dashboard details and screenshots in `dashboards/`.
 
 ## 🛠️ Technologies & Tools
 
-* **Platform**: Databricks (AWS)
+* **Platform**: Databricks 
 * **Data Storage**: Unity Catalog / Hive Metastore
 * **Compute**: Serverless SQL Warehouse
 * **Languages**: SQL (primary), Python (optional for notebooks)
@@ -230,41 +230,10 @@ order_products_     → bronze_order_products_train  →   (union with prior)   
 
 ---
 
-## 🚀 Future Enhancements
-
-### Phase 2 (Planned)
-* [ ] Add `dim_date` dimension with fiscal calendar attributes
-* [ ] Enhance `dim_order` with additional customer lifetime metrics or split into separate `dim_customer` table
-* [ ] Implement SCD Type 2 for product price history tracking
-* [ ] Create daily/monthly aggregate fact tables
-* [ ] Add data quality monitoring dashboard
-* [ ] Automate pipeline execution with Databricks Jobs
-
-### Phase 3 (Proposed)
-* [ ] Real-time streaming ingestion (Kafka → Bronze)
-* [ ] ML model for demand forecasting
-* [ ] Recommendation engine (collaborative filtering)
-* [ ] A/B testing framework for promotions
-* [ ] Data lineage visualization with OpenLineage
-* [ ] dbt integration for transformation layer
-
-### Infrastructure
-* [ ] CI/CD pipeline with GitHub Actions
-* [ ] Automated testing on PR merge
-* [ ] Data quality rules as code
-* [ ] Performance regression testing
-
----
 
 ## ⚠️ Known Issues & Limitations
 
 ### Data Quality Issues
-
-**3 Orphan Products**  
-* **Description**: `silver_order_products` contains 3 product IDs not in `silver_products`
-* **Impact**: 3 rows filtered from Gold layer during FK validation
-* **Status**: Documented in `docs/validation.md`, upstream source data issue
-* **Mitigation**: Documented and accepted; investigate source data refresh
 
 **75,000 Orders Dropped**  
 * **Description**: Orders with NULL `days_since_prior_order` (first customer orders)
@@ -272,32 +241,6 @@ order_products_     → bronze_order_products_train  →   (union with prior)   
 * **Status**: Expected behavior, validated
 * **Reason**: Business rule requires order sequence tracking
 
-### Current Limitations
-
-**Team Business Question 4**  
-* **Status**: Intentionally omitted until team finalizes definition
-* **Impact**: Task 24 placeholder reserved but not implemented
-* **Timeline**: To be added in Phase 2
-
-**Dashboard**  
-* **Status**: In development
-* **Impact**: Analytics tables ready (tasks 21-23), visualization layer pending
-* **Owner**: TBD in `docs/team_contributions.md`
-
-**Separate Customer Dimension**  
-* **Status**: Not implemented - customer attributes are embedded in `dim_order`
-* **Reason**: Simplified star schema for initial implementation
-* **Current Design**: Customer ID and order sequence live in `dim_order`
-* **Future**: May be split into dedicated `dim_customer` in Phase 2
-
-### Technical Constraints
-
-* **No streaming**: Current implementation is batch-only
-* **No incremental loads**: Full refresh on each run (acceptable for project scope)
-* **No partition pruning**: Not needed for current data volume
-* **No CDC tracking**: Bronze layer does not track changes over time
-
----
 
 ## 📊 Project Statistics
 
@@ -392,13 +335,6 @@ Track individual contributions in `docs/team_contributions.md`:
 * [Team Contributions](docs/team_contributions.md) — Individual deliverables and ownership
 * [Presentation Notes](docs/presentation_notes.md) — Talking points for project demo
 
-### External References
-
-* [Instacart Dataset (Kaggle)](https://www.kaggle.com/c/instacart-market-basket-analysis)
-* [Kimball Dimensional Modeling](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/)
-* [Databricks Medallion Architecture](https://www.databricks.com/glossary/medallion-architecture)
-* [Unity Catalog Documentation](https://docs.databricks.com/en/data-governance/unity-catalog/index.html)
-
 ---
 
 ## 📝 License & Attribution
@@ -406,13 +342,13 @@ Track individual contributions in `docs/team_contributions.md`:
 **Project**: Instacart Data Engineering Pipeline  
 **Organization**: FTW Data Engineering Batch 12  
 **Dataset**: Instacart Market Basket Analysis (Kaggle)  
-**Platform**: Databricks (AWS)  
+**Platform**: Databricks
 **Architecture**: Medallion (Bronze → Silver → Gold)  
 **Modeling**: Kimball Dimensional Modeling
 
 ---
 
-## 📧 Contact
+## Contact
 
 For questions about this project:
 * See `docs/team_contributions.md` for team member contacts
