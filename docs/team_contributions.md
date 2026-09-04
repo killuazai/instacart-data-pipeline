@@ -12,7 +12,7 @@
 | **Ina** | Silver Layer Engineer | Silver Validation |
 | **Cath** | Gold Layer Engineer | Gold Validation |
 | **Maeve** | Business Analytics | Dashboard Development |
-| **Angela** | GitHub Organization | Query Documentation |
+| **Angela** | Query Review & Optimization | SQL Documentation |
 | **Tina (Cristina)** | Documentation  | Star Schema Design |
 
 ---
@@ -232,44 +232,54 @@
 
 ---
 
-### Angela — GitHub Notebook Organization
+### Angela — GitHub & Query Documentation
 
-**Primary Responsibility**: Repository organization and query documentation
+**Primary Responsibility**: Query review, optimization, and comprehensive SQL documentation
+
+**Note**: Nadine is the GitHub repository owner for the Instacart project.
 
 #### Deliverables
 
-1. **GitHub Repository Structure**
-   * Organized notebooks into clear pipeline layers
-   * Structured documentation folder hierarchy
-   * Maintained version control for all project files
+1. **Query Review and Optimization**
+   * Reviewed Bronze, Silver, Gold, and Analytics notebooks to ensure queries run as expected
+   * Identified improvement opportunities and updated queries where needed
+   * Validated query logic and performance across all pipeline layers
 
-2. **Per-Query Documentation**
-   * Documented query structure and purpose
-   * Organized code into logical sections:
-     * Data ingestion queries
-     * Data cleaning queries
-     * Validation queries
-     * Business analytics queries
-   * Added descriptive cell titles for each query section
+2. **SQL File Conversion and Organization**
+   * Converted notebook queries into individual SQL files for better organization
+   * Structured queries for pipeline orchestration
+   * Created modular SQL components for reusability
 
-3. **Repository Management**
-   * Maintained clean commit history
-   * Organized files into appropriate directories
-   * Ensured notebook readability and maintainability
+3. **Query Documentation**
+   * Documented 25+ SQL queries with detailed descriptions
+   * Mapped query dependencies across pipeline layers
+   * Created runbook for query execution and troubleshooting
+
+4. **Query Catalog Creation**
+   * Built comprehensive query catalog showing:
+     * Query purpose and business logic
+     * Input/output tables and dependencies
+     * Execution order and prerequisites
+     * Performance considerations
+   * Organized GitHub repository structure for SQL files
 
 #### Key Accomplishments
 
-* ✅ Created professional GitHub repository structure
-* ✅ Organized notebooks for easy navigation
-* ✅ Documented query sections for clarity
-* ✅ Maintained version control best practices
+* ✅ Reviewed and validated all pipeline queries (Bronze → Silver → Gold → Analytics)
+* ✅ Converted 25+ notebook queries into organized SQL files
+* ✅ Created comprehensive query documentation with dependencies
+* ✅ Built runbook and query catalog for pipeline management
+* ✅ Identified and implemented query optimization opportunities
+* ✅ Established modular SQL structure for maintainability
 
 #### Technical Skills Demonstrated
 
-* Git and GitHub proficiency
-* Code organization and documentation
-* Repository structure design
-* Version control best practices
+* SQL query review and optimization
+* Query dependency mapping
+* Technical documentation and runbook creation
+* SQL file organization and modularization
+* Pipeline orchestration planning
+* GitHub repository structure design
 
 ---
 
@@ -369,10 +379,10 @@ The team worked sequentially through the Medallion Architecture:
 
 ```
 Nadine (Bronze) → Ina (Silver) → Cath (Gold) → Maeve (Dashboard)
-                                       ↓
-                            Tina (Documentation)
-                                       ↓
-                            Angela (Organization)
+                     ↓                    ↓
+              Angela (Query Review)  Tina (Documentation)
+                     ↓
+              (SQL Documentation & Catalog)
 ```
 
 ### Cross-Team Coordination
@@ -398,9 +408,9 @@ Nadine (Bronze) → Ina (Silver) → Cath (Gold) → Maeve (Dashboard)
    * Tina documented business analytics consumed by Maeve
 
 5. **All → Angela**
-   * Angela organized notebooks created by Nadine, Ina, and Cath
-   * Angela structured documentation created by Tina
-   * Angela maintained repository for team collaboration
+   * Angela reviewed and validated queries from Nadine, Ina, and Cath
+   * Angela converted notebook queries into organized SQL files
+   * Angela documented 25+ queries with dependencies and created runbook
 
 ---
 
@@ -470,7 +480,7 @@ Nadine (Bronze) → Ina (Silver) → Cath (Gold) → Maeve (Dashboard)
 
 3. **Documentation Enables Collaboration**
    * Tina's documentation helps team understand design decisions
-   * Angela's organization makes code navigable
+   * Angela's query documentation and runbook make SQL code navigable and maintainable
 
 ---
 
@@ -489,8 +499,8 @@ Every team member contributed essential skills and expertise:
 * **Ina** ensured data quality with Silver cleaning
 * **Cath** created the analytical model with Gold dimensional design
 * **Maeve** delivered business value with the dashboard
-* **Angela** maintained organization and structure
-* **Tina** create the star schema and documented the project for future reference
+* **Angela** reviewed queries and created comprehensive SQL documentation
+* **Tina** created the star schema and documented the project for future reference
 
 ---
 
