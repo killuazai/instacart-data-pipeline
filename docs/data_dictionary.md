@@ -1,411 +1,412 @@
 # Data Dictionary
 
-**Engineer Instacart — Comprehensive Column Definitions**
+**Instacart Data Engineering Pipeline — Complete Column Catalog**
+
+This data dictionary provides detailed schema information for all tables across the Bronze, Silver, and Gold layers.
 
 ---
 
-## Bronze Layer Tables
+## How to Use This Dictionary
 
-Raw ingestion layer preserving source data structure.
+**Table Organization**: Bronze → Silver → Gold
 
-### `bronze_aisles`
+**Column Information**:
+* **Column Name**: Exact column name as it appears in the table
+* **Data Type**: Databricks/Spark SQL data type
+* **Nullable**: Whether the column accepts NULL values
+* **Description**: Business meaning and technical notes
+* **Primary Key (PK)**: Indicates primary key columns
+* **Foreign Key (FK)**: Indicates foreign key relationships
 
+---
+
+## BRONZE LAYER
+
+**Catalog/Schema**: `workspace.default`
+
+**Purpose**: Raw ingestion from CSV files with minimal transformation
+
+**Common Columns**: All Bronze tables include `_rescued_data` (STRING, nullable) for malformed CSV records (validated as all NULL)
+
+### bronze_aisles
+
+**Source**: `aisles.csv`  
 **Row Count**: 134  
 **Grain**: One row per aisle
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `aisle_id` | INT | Unique identifier for aisle | PK |
-| `aisle` | STRING | Aisle name (e.g., "fresh fruits", "packaged cheese") | Attribute |
-| `_rescued_data` | STRING | Malformed CSV records (validated as all NULL) | Data Quality |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| aisle_id | INT | No | ✓ | | Unique aisle identifier |
+| aisle | STRING | Yes | | | Aisle name (e.g., "fresh fruits", "packaged cheese") |
+| _rescued_data | STRING | Yes | | | Malformed CSV records (all NULL) |
 
----
+### bronze_departments
 
-### `bronze_departments`
-
+**Source**: `departments.csv`  
 **Row Count**: 21  
 **Grain**: One row per department
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `department_id` | INT | Unique identifier for department | PK |
-| `department` | STRING | Department name (e.g., "produce", "dairy eggs", "snacks") | Attribute |
-| `_rescued_data` | STRING | Malformed CSV records (validated as all NULL) | Data Quality |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| department_id | INT | No | ✓ | | Unique department identifier |
+| department | STRING | Yes | | | Department name (e.g., "produce", "dairy eggs") |
+| _rescued_data | STRING | Yes | | | Malformed CSV records (all NULL) |
 
----
+### bronze_products
 
-### `bronze_products`
-
+**Source**: `products.csv`  
 **Row Count**: 49,688  
 **Grain**: One row per product
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `product_id` | INT | Unique identifier for product | PK |
-| `product_name` | STRING | Full product name (e.g., "Organic Hass Avocado") | Attribute |
-| `aisle_id` | **STRING** | Aisle identifier (incorrectly typed in source) | FK (should be INT) |
-| `department_id` | **STRING** | Department identifier (incorrectly typed in source) | FK (should be INT) |
-| `_rescued_data` | STRING | Malformed CSV records (validated as all NULL) | Data Quality |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| product_id | INT | No | ✓ | | Unique product identifier |
+| product_name | STRING | Yes | | | Product name |
+| aisle_id | STRING | Yes | | | **Data Quality Issue**: Should be INT (fixed in Silver) |
+| department_id | STRING | Yes | | | **Data Quality Issue**: Should be INT (fixed in Silver) |
+| _rescued_data | STRING | Yes | | | Malformed CSV records (all NULL) |
 
-**Data Quality Issue**: `aisle_id` and `department_id` are STRING in source (should be INT). Fixed in Silver layer.
+### bronze_orders
 
----
-
-### `bronze_orders`
-
+**Source**: `orders.csv`  
 **Row Count**: 3,421,083  
 **Grain**: One row per order
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `order_id` | INT | Unique identifier for order | PK |
-| `user_id` | INT | Customer who placed the order | FK |
-| `eval_set` | STRING | Dataset split: 'prior', 'train', or 'test' | Metadata |
-| `order_number` | INT | Sequence number for customer (1, 2, 3...) | Attribute |
-| `order_dow` | INT | Day of week (0=Sunday, 1=Monday, ..., 6=Saturday) | Attribute |
-| `order_hour_of_day` | INT | Hour of order placement (0-23) | Attribute |
-| `days_since_prior_order` | DOUBLE | Days elapsed since customer's previous order (NULL for first order) | Attribute |
-| `_rescued_data` | STRING | Malformed CSV records (validated as all NULL) | Data Quality |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| order_id | INT | No | ✓ | | Unique order identifier |
+| user_id | INT | Yes | | | Customer identifier |
+| eval_set | STRING | Yes | | | Dataset split: 'prior' or 'train' |
+| order_number | INT | Yes | | | Customer's order sequence (1, 2, 3, ...) |
+| order_dow | INT | Yes | | | Day of week (0=Sunday, 6=Saturday) |
+| order_hour_of_day | INT | Yes | | | Hour of day (0-23) |
+| days_since_prior_order | DOUBLE | Yes | | | Days since last order (NULL for first order) |
+| _rescued_data | STRING | Yes | | | Malformed CSV records (all NULL) |
 
----
+### bronze_order_products_prior
 
-### `bronze_order_products_prior`
-
+**Source**: `order_products__prior.csv`  
 **Row Count**: 32,434,489  
-**Grain**: One row per product per order (order line item)
+**Grain**: One row per product per order
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `order_id` | INT | Order identifier | PK (Composite) |
-| `product_id` | INT | Product identifier | PK (Composite) |
-| `add_to_cart_order` | INT | Sequence of product added to cart (1, 2, 3...) | Attribute |
-| `reordered` | INT | Binary flag: 1 = reordered, 0 = first purchase | Attribute |
-| `_rescued_data` | STRING | Malformed CSV records (validated as all NULL) | Data Quality |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| order_id | INT | No | ✓ | | Order identifier |
+| product_id | INT | No | ✓ | | Product identifier |
+| add_to_cart_order | INT | No | ✓ | | Sequence product was added to cart (1, 2, 3, ...) |
+| reordered | INT | Yes | | | Binary: 1 = reorder, 0 = first purchase |
+| _rescued_data | STRING | Yes | | | Malformed CSV records (all NULL) |
 
-**Primary Key**: (`order_id`, `product_id`)
+### bronze_order_products_train
 
----
-
-### `bronze_order_products_train`
-
+**Source**: `order_products__train.csv`  
 **Row Count**: 1,384,617  
-**Grain**: One row per product per order (order line item)
+**Grain**: One row per product per order
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `order_id` | INT | Order identifier | PK (Composite) |
-| `product_id` | INT | Product identifier | PK (Composite) |
-| `add_to_cart_order` | INT | Sequence of product added to cart (1, 2, 3...) | Attribute |
-| `reordered` | INT | Binary flag: 1 = reordered, 0 = first purchase | Attribute |
-| `_rescued_data` | STRING | Malformed CSV records (validated as all NULL) | Data Quality |
-
-**Primary Key**: (`order_id`, `product_id`)
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| order_id | INT | No | ✓ | | Order identifier |
+| product_id | INT | No | ✓ | | Product identifier |
+| add_to_cart_order | INT | No | ✓ | | Sequence product was added to cart |
+| reordered | INT | Yes | | | Binary: 1 = reorder, 0 = first purchase |
+| _rescued_data | STRING | Yes | | | Malformed CSV records (all NULL) |
 
 ---
 
-## Silver Layer Tables
+## SILVER LAYER
 
-Cleaned and standardized data with data quality validation.
+**Catalog/Schema**: `workspace.default`
 
-### `silver_aisles`
+**Purpose**: Cleaned, standardized, and validated data
 
+**Common Transformations**:
+* `_rescued_data` dropped (validated as all NULL)
+* NULL filtering on required columns
+* Type conversions where needed
+* `loaded_at` (TIMESTAMP) added to all tables
+
+### silver_aisles
+
+**Source**: `bronze_aisles`  
 **Row Count**: 134 (0 dropped)  
 **Grain**: One row per aisle
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `aisle_id` | INT | Unique identifier for aisle | PK |
-| `aisle` | STRING | Aisle name (e.g., "fresh fruits", "packaged cheese") | Attribute |
-| `loaded_at` | TIMESTAMP | ETL timestamp indicating when record was loaded | Metadata |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| aisle_id | INT | No | ✓ | | Unique aisle identifier |
+| aisle | STRING | No | | | Aisle name |
+| loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
-**Transformations**: Dropped `_rescued_data`, filtered NULLs, added `loaded_at`
+### silver_departments
 
----
-
-### `silver_departments`
-
+**Source**: `bronze_departments`  
 **Row Count**: 21 (0 dropped)  
 **Grain**: One row per department
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `department_id` | INT | Unique identifier for department | PK |
-| `department` | STRING | Department name (e.g., "produce", "dairy eggs", "snacks") | Attribute |
-| `loaded_at` | TIMESTAMP | ETL timestamp indicating when record was loaded | Metadata |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| department_id | INT | No | ✓ | | Unique department identifier |
+| department | STRING | No | | | Department name |
+| loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
-**Transformations**: Dropped `_rescued_data`, filtered NULLs, added `loaded_at`
+### silver_products
 
----
-
-### `silver_products`
-
+**Source**: `bronze_products`  
 **Row Count**: 49,687 (1 dropped)  
 **Grain**: One row per product
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `product_id` | INT | Unique identifier for product | PK |
-| `product_name` | STRING | Full product name (e.g., "Organic Hass Avocado") | Attribute |
-| `aisle_id` | **INT** | Aisle identifier (CAST from STRING) | FK to silver_aisles |
-| `department_id` | **INT** | Department identifier (CAST from STRING) | FK to silver_departments |
-| `loaded_at` | TIMESTAMP | ETL timestamp indicating when record was loaded | Metadata |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| product_id | INT | No | ✓ | | Unique product identifier |
+| product_name | STRING | No | | | Product name |
+| aisle_id | INT | No | | ✓ | FK to silver_aisles.aisle_id (CAST from STRING) |
+| department_id | INT | No | | ✓ | FK to silver_departments.department_id (CAST from STRING) |
+| loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
-**Transformations**: CAST aisle_id and department_id to INT, dropped `_rescued_data`, filtered NULLs, added `loaded_at`
+**Transformation Notes**:
+* `aisle_id` and `department_id` CAST from STRING → INT
+* 1 row dropped due to NULL filtering
 
----
+### silver_orders
 
-### `silver_orders`
-
+**Source**: `bronze_orders`  
 **Row Count**: 3,346,083 (75,000 dropped)  
 **Grain**: One row per order
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `order_id` | INT | Unique identifier for order | PK |
-| `user_id` | INT | Customer who placed the order | FK |
-| `eval_set` | STRING | Dataset split: 'prior', 'train', or 'test' | Metadata |
-| `order_number` | INT | Sequence number for customer (1, 2, 3...) | Attribute |
-| `order_dow` | INT | Day of week (0=Sunday, 1=Monday, ..., 6=Saturday) | Attribute |
-| `order_hour_of_day` | INT | Hour of order placement (0-23) | Attribute |
-| `days_since_prior_order` | DOUBLE | Days elapsed since customer's previous order (NULL intentionally preserved for first order) | Attribute |
-| `loaded_at` | TIMESTAMP | ETL timestamp indicating when record was loaded | Metadata |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| order_id | INT | No | ✓ | | Unique order identifier |
+| user_id | INT | No | | | Customer identifier |
+| eval_set | STRING | Yes | | | Dataset split: 'prior' or 'train' |
+| order_number | INT | Yes | | | Customer's order sequence |
+| order_dow | INT | Yes | | | Day of week (0=Sunday) |
+| order_hour_of_day | INT | Yes | | | Hour (0-23) |
+| days_since_prior_order | DOUBLE | Yes | | | Days since last order (NULL = first order) |
+| loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
-**Transformations**: Dropped `_rescued_data`, filtered NULLs in order_id/user_id, preserved NULL in days_since_prior_order, added `loaded_at`
+**Transformation Notes**:
+* 75,000 rows dropped (NULL `order_id` or `user_id`)
+* `days_since_prior_order` NULL preserved (valid for first orders)
 
-**Data Quality**: 75,000 rows dropped due to NULL filtering in required fields
+### silver_order_products
 
----
-
-### `silver_order_products`
-
+**Source**: `bronze_order_products_prior` UNION `bronze_order_products_train`  
 **Row Count**: 33,819,106 (0 dropped)  
-**Grain**: One row per product per order (order line item)
+**Grain**: One row per product per order
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `order_id` | INT | Order identifier | PK (Composite) |
-| `product_id` | INT | Product identifier | PK (Composite) |
-| `add_to_cart_order` | INT | Sequence of product added to cart (1, 2, 3...) | Attribute |
-| `reordered` | INT | Binary flag: 1 = reordered, 0 = first purchase | Attribute |
-| `source_system` | STRING | Origin dataset: 'prior' or 'train' | Lineage Metadata |
-| `loaded_at` | TIMESTAMP | ETL timestamp indicating when record was loaded | Metadata |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| order_id | INT | No | ✓ | ✓ | FK to silver_orders.order_id |
+| product_id | INT | No | ✓ | ✓ | FK to silver_products.product_id |
+| add_to_cart_order | INT | No | ✓ | | Sequence in cart |
+| reordered | INT | Yes | | | Binary: 1 = reorder, 0 = first purchase |
+| source_system | STRING | Yes | | | 'prior' or 'train' (tracks origin dataset) |
+| loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
-**Transformations**: UNION of bronze_order_products_prior and bronze_order_products_train, added `source_system`, dropped `_rescued_data`, filtered NULLs, added `loaded_at`
+**Transformation Notes**:
+* UNION of prior + train datasets
+* `source_system` column added to track origin
+* 0 rows dropped
 
-**Primary Key**: (`order_id`, `product_id`)
-
-**Referential Integrity Issue**: 3 orphan products (product_id does not exist in silver_products)
-
----
-
-## Gold Layer Tables
-
-Dimensional model (star schema) and pre-aggregated business analytics tables.
-
-### Dimensional Model
-
-#### `fact_order_items`
-
-**Row Count**: 33,819,103 (3 dropped due to orphan products)  
-**Grain**: One row per product per order (order line item)
-
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `order_item_key` | BIGINT | Surrogate key (auto-generated sequential ID) | PK |
-| `order_key` | INT | Order identifier | FK to dim_orders |
-| `product_key` | INT | Product identifier | FK to dim_products |
-| `customer_key` | INT | Customer identifier | FK to dim_customers |
-| `add_to_cart_order` | INT | Sequence of product added to cart (1=first, 2=second, etc.) | Measure (Semi-Additive) |
-| `is_reordered` | INT | Binary flag: 1 = customer reordered this product, 0 = first-time purchase | Measure (Additive) |
-| `source_system` | STRING | Origin dataset: 'prior' or 'train' | Lineage Metadata |
-| `loaded_at` | TIMESTAMP | ETL timestamp | Metadata |
-
-**Primary Key**: `order_item_key`  
-**Natural Key**: (`order_key`, `product_key`)  
-**Foreign Keys**: `order_key`, `product_key`, `customer_key`
+**Data Quality Issue**: 3 orphan products (product_id not in silver_products) filtered in Gold layer
 
 ---
 
-#### `dim_products`
+## GOLD LAYER
 
+**Catalog/Schema**: `workspace.instacart_gold`
+
+**Purpose**: Dimensional star schema optimized for analytics
+
+**Unity Catalog Constraints**: Primary Keys (PK) and Foreign Keys (FK) enforced
+
+### dim_product
+
+**Source**: `silver_products` + `silver_aisles` + `silver_departments` (denormalized joins)  
 **Row Count**: 49,687  
-**Grain**: One row per product
+**Grain**: One row per product  
+**Primary Key**: `product_id` (Unity Catalog constraint: `dim_product_pk`)
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `product_key` | INT | Primary key (= product_id) | PK |
-| `product_id` | INT | Natural key from source system | Natural Key |
-| `product_name` | STRING | Full product name (e.g., "Organic Hass Avocado") | Attribute |
-| `aisle_id` | INT | Aisle identifier | Attribute |
-| `aisle_name` | STRING | Aisle name (e.g., "fresh fruits") | Attribute |
-| `department_id` | INT | Department identifier | Attribute |
-| `department_name` | STRING | Department name (e.g., "produce") | Attribute |
-| `product_hierarchy` | STRING | Full hierarchy: "department / aisle / product" (e.g., "produce / fresh fruits / Organic Hass Avocado") | Derived Attribute |
-| `loaded_at` | TIMESTAMP | ETL timestamp | Metadata |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| product_id | INT | No | ✓ | | Unique product identifier (PK) |
+| product_name | STRING | Yes | | | Product name |
+| aisle_id | INT | Yes | | | Aisle identifier (denormalized) |
+| aisle_name | STRING | Yes | | | Aisle name (e.g., "fresh fruits") |
+| department_id | INT | Yes | | | Department identifier (denormalized) |
+| department_name | STRING | Yes | | | Department name (e.g., "produce") |
+| product_hierarchy | STRING | Yes | | | Full hierarchy: "department / aisle / product" |
+| loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
-**Hierarchy**: Department (21) → Aisle (134) → Product (49,687)
+**Denormalization**: Aisle and department names joined and embedded for query performance
 
----
+**Unity Catalog Constraints**:
+* Primary Key: `dim_product_pk` on `product_id`
 
-#### `dim_customers`
+### dim_order
 
-**Row Count**: 206,209  
-**Grain**: One row per customer
-
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `customer_key` | INT | Primary key (= user_id) | PK |
-| `user_id` | INT | Natural key from source system | Natural Key |
-| `first_order_number` | INT | Minimum order_number for customer (always 1) | Attribute |
-| `total_orders` | INT | Maximum order_number for customer (lifetime order count) | Pre-Aggregated Metric |
-| `total_order_count` | BIGINT | COUNT(DISTINCT order_id) for customer | Pre-Aggregated Metric |
-| `avg_days_between_orders` | DOUBLE | Average days_since_prior_order for customer | Pre-Aggregated Metric |
-| `loaded_at` | TIMESTAMP | ETL timestamp | Metadata |
-
-**Pre-Aggregated Metrics**: Customer lifetime metrics computed during dimension build
-
----
-
-#### `dim_orders`
-
+**Source**: `silver_orders` with derived temporal attributes  
 **Row Count**: 3,346,083  
-**Grain**: One row per order
+**Grain**: One row per order  
+**Primary Key**: `order_id` (Unity Catalog constraint: `dim_order_pk`)
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `order_key` | INT | Primary key (= order_id) | PK |
-| `order_id` | INT | Natural key from source system | Natural Key |
-| `user_id` | INT | Customer who placed the order | Attribute |
-| `order_number` | INT | Sequence number for customer (1, 2, 3...) | Attribute |
-| `order_dow` | INT | Day of week (0=Sunday, 1=Monday, ..., 6=Saturday) | Attribute |
-| `day_of_week_name` | STRING | Human-readable day name: "Sunday", "Monday", ..., "Saturday" | Derived Attribute |
-| `order_hour_of_day` | INT | Hour of order placement (0-23) | Attribute |
-| `time_of_day_bucket` | STRING | Time bucket: "Morning" (5-11), "Afternoon" (12-16), "Evening" (17-21), "Night" (22-4) | Derived Attribute |
-| `days_since_prior_order` | DOUBLE | Days elapsed since customer's previous order (NULL for first order) | Attribute |
-| `loaded_at` | TIMESTAMP | ETL timestamp | Metadata |
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| order_id | INT | No | ✓ | | Unique order identifier (PK) |
+| user_id | INT | Yes | | | Customer identifier |
+| eval_set | STRING | Yes | | | 'prior' or 'train' |
+| order_number | INT | Yes | | | Customer's order sequence |
+| order_dow | INT | Yes | | | Day of week (0-6) |
+| day_of_week_name | STRING | Yes | | | Derived: 'Sunday', 'Monday', etc. |
+| order_hour_of_day | INT | Yes | | | Hour (0-23) |
+| time_of_day_bucket | STRING | Yes | | | Derived: 'Early Morning', 'Morning', 'Afternoon', 'Evening', 'Night' |
+| days_since_prior_order | DOUBLE | Yes | | | Days since last order (NULL = first) |
+| loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
-**Derived Attributes**: `day_of_week_name` and `time_of_day_bucket` computed from temporal fields
+**Derived Columns**:
+* `day_of_week_name`: CASE expression from `order_dow`
+* `time_of_day_bucket`: CASE expression from `order_hour_of_day`
+  * 0-5: Early Morning
+  * 6-11: Morning
+  * 12-17: Afternoon
+  * 18-21: Evening
+  * 22-23: Night
 
----
+**Unity Catalog Constraints**:
+* Primary Key: `dim_order_pk` on `order_id`
 
-### Business Analytics Tables
+### fact_order_product
 
-Pre-aggregated tables optimized for dashboard consumption.
+**Source**: `silver_order_products` + `silver_orders` (for user_id denormalization)  
+**Row Count**: 33,819,103 (3 orphan products filtered)  
+**Grain**: One row per product per order (order line item)  
+**Primary Key**: Composite (`order_id`, `add_to_cart_order`) (Unity Catalog constraint: `fact_order_product_pk`)
 
-#### `gold_product_popularity`
+| Column | Data Type | Nullable | PK | FK | Description |
+|--------|-----------|----------|----|----|-------------|
+| order_id | INT | No | ✓ | ✓ | Composite PK component, FK to dim_order.order_id |
+| product_id | INT | No | | ✓ | FK to dim_product.product_id |
+| add_to_cart_order | INT | No | ✓ | | Composite PK component, cart sequence (measure) |
+| reordered | BOOLEAN | Yes | | | Measure: TRUE = reorder, FALSE = first purchase |
+| user_id | INT | Yes | | | Denormalized customer identifier (from dim_order) |
+| source_system | STRING | Yes | | | 'prior' or 'train' |
+| loaded_at | TIMESTAMP | Yes | | | ETL load timestamp |
 
-**Row Count**: 49,684  
-**Grain**: One row per product  
-**Purpose**: Answer BQ1 — Which products and departments are purchased most frequently?
+**Measures**:
+* `add_to_cart_order`: Semi-additive (cart position)
+* `reordered`: Fully additive (SUM = reorder count, AVG = reorder rate)
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `department_name` | STRING | Department name | Dimension |
-| `aisle_name` | STRING | Aisle name | Dimension |
-| `product_name` | STRING | Product name | Dimension |
-| `product_id` | INT | Product identifier | Dimension |
-| `total_orders` | BIGINT | Total number of orders containing this product | Metric |
-| `unique_customers` | BIGINT | COUNT(DISTINCT user_id) from orders | Metric |
-| `reorder_rate_pct` | DECIMAL(27,2) | Percentage of purchases that are reorders | Metric |
-| `avg_products_per_order` | DOUBLE | [TO CONFIRM — not visible in sample] | Metric |
+**Unity Catalog Constraints**:
+* Primary Key: `fact_order_product_pk` on (`order_id`, `add_to_cart_order`)
+* Foreign Key: `fact_order_product_product_fk` on `product_id` → `dim_product.product_id`
+* Foreign Key: `fact_order_product_order_fk` on `order_id` → `dim_order.order_id`
 
-**Sorting**: Pre-sorted by `total_orders DESC`
-
----
-
-#### `gold_temporal_patterns`
-
-**Row Count**: 168 (7 days × 24 hours)  
-**Grain**: One row per (day_of_week, hour_of_day) combination  
-**Purpose**: Answer BQ2 — How does purchasing behavior change by day and hour?
-
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `day_of_week_name` | STRING | Day name ("Sunday", "Monday", etc.) | Dimension |
-| `order_dow` | INT | Day of week numeric (0-6) | Dimension |
-| `order_hour_of_day` | INT | Hour (0-23) | Dimension |
-| `time_of_day_bucket` | STRING | Time bucket ("Morning", "Afternoon", "Evening", "Night") | Dimension |
-| `total_orders` | BIGINT | COUNT(DISTINCT order_key) | Metric |
-| `total_items` | BIGINT | COUNT(*) of order items | Metric |
-| `avg_items_per_order` | DOUBLE | total_items / total_orders | Metric |
-| `unique_customers` | BIGINT | COUNT(DISTINCT user_id) from orders | Metric |
-
-**Use Case**: Heatmap visualization for order patterns
+**Data Quality**:
+* 3 orphan products (product_id not in dim_product) filtered upstream
+* All FK constraints pass validation (0 orphans in fact table)
 
 ---
 
-#### `gold_reorder_behavior`
+## Data Type Reference
 
-**Row Count**: 42,987 (products with ≥ 10 purchases)  
-**Grain**: One row per product  
-**Purpose**: Answer BQ3 — Which products have the highest reorder behavior?
+### Databricks SQL Data Types
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `department_name` | STRING | Department name | Dimension |
-| `aisle_name` | STRING | Aisle name | Dimension |
-| `product_name` | STRING | Product name | Dimension |
-| `product_id` | INT | Product identifier | Dimension |
-| `total_purchases` | BIGINT | Total number of purchases (order line items) | Metric |
-| `reorder_count` | BIGINT | SUM(reordered) | Metric |
-| `first_time_purchase_count` | BIGINT | total_purchases - reorder_count | Metric |
-| `reorder_rate_pct` | DECIMAL(27,2) | (reorder_count / total_purchases) × 100 | Metric |
-| `unique_customers` | BIGINT | COUNT(DISTINCT user_id) from orders | Metric |
-| `reorder_rank` | INT | RANK by reorder_rate (NULL if < 100 purchases) | Derived Metric |
+| Data Type | Description | Example Values |
+|-----------|-------------|----------------|
+| INT | 32-bit signed integer | 1, 42, 1000000 |
+| DOUBLE | 64-bit floating point | 7.5, 17.123456 |
+| STRING | Variable-length character string | "Banana", "produce" |
+| BOOLEAN | True/False logical value | TRUE, FALSE |
+| TIMESTAMP | Date and time with microsecond precision | 2026-09-04 10:30:15 |
 
-**Filters**: Minimum 10 purchases per product; reorder_rank computed only for products with ≥ 100 purchases
+### Nullable Column Guidelines
+
+**NOT NULL Columns**:
+* Primary keys
+* Foreign keys in fact tables
+* Required business attributes
+
+**NULL-able Columns**:
+* Optional descriptive attributes
+* Derived/calculated fields
+* Metadata columns (e.g., `loaded_at`)
+* Fields with valid NULL business meaning (e.g., `days_since_prior_order` for first orders)
 
 ---
 
-#### `gold_basket_pairs`
+## Schema Evolution History
 
-**Row Count**: 1,000 (top 1,000 pairs)  
-**Grain**: One row per product pair (A, B where A < B)  
-**Purpose**: Answer BQ4 — What are the most common product pairs purchased together?
+### Version 1.0 (Current) — workspace.instacart_gold
 
-| Column | Data Type | Description | Key/Role |
-|--------|-----------|-------------|----------|
-| `product_1` | STRING | First product name | Dimension |
-| `product_1_id` | INT | First product identifier | Dimension |
-| `product_1_department` | STRING | First product department | Dimension |
-| `product_2` | STRING | Second product name | Dimension |
-| `product_2_id` | INT | Second product identifier | Dimension |
-| `product_2_department` | STRING | Second product department | Dimension |
-| `orders_with_both` | BIGINT | COUNT(DISTINCT order_id) where both products appear | Metric |
-| `customers_buying_both` | BIGINT | COUNT(DISTINCT customer_key) | Metric |
-| `pair_frequency_pct` | DECIMAL(31,4) | (orders_with_both / total_orders) × 100 | Metric |
+**Date**: 2026-09-04
 
-**Filters**: Minimum 100 co-occurrences; Limited to top 1,000 pairs for performance
+**Changes**:
+* Migrated from `workspace.default` (legacy) to `workspace.instacart_gold` (current)
+* Applied Unity Catalog PK/FK constraints
+* Table naming: `dim_product`, `dim_order`, `fact_order_product` (no plural 's')
+* Removed separate `dim_customers` table (embedded in `dim_order`)
+* Changed `reordered` from INT to BOOLEAN in fact table
 
-**Example**: ("Bag of Organic Bananas", "Organic Hass Avocado") appears in 64,761 orders
+### Version 0.x (Legacy) — workspace.default
+
+**Tables**: `dim_products`, `dim_orders`, `dim_customers`, `fact_order_items`
+
+**Status**: Deprecated, retained for backward compatibility
+
+---
+
+## Column Naming Conventions
+
+**Primary Keys**: Singular form + `_id` suffix (e.g., `product_id`, `order_id`)
+
+**Foreign Keys**: Match the primary key name in the referenced table
+
+**Measures**: Descriptive names (e.g., `reordered`, `add_to_cart_order`)
+
+**Derived Attributes**: Descriptive, business-friendly names (e.g., `day_of_week_name`, `time_of_day_bucket`, `product_hierarchy`)
+
+**Metadata**: `loaded_at` (timestamp), `source_system` (string)
+
+**Reserved Names**: Avoid SQL keywords, use lowercase with underscores
 
 ---
 
 ## Data Quality Notes
 
-### Bronze to Silver
+### Known Issues
 
-* **_rescued_data**: All NULL across all Bronze tables (no malformed CSV records)
-* **Type Conversions**: aisle_id and department_id successfully CAST from STRING to INT
-* **Dropped Rows**:
-  * products: 1 row (NULL in required fields)
-  * orders: 75,000 rows (NULL in required fields)
-  * order_products: 0 rows
+**3 Orphan Products**:
+* **Location**: `silver_order_products`
+* **Issue**: 3 product_id values not present in `silver_products`
+* **Impact**: 3 rows filtered when creating `fact_order_product`
+* **Root Cause**: Upstream source data inconsistency
+* **Status**: Documented, accepted
 
-### Silver to Gold
+**75,000 Orders Dropped**:
+* **Location**: `bronze_orders` → `silver_orders`
+* **Issue**: NULL `order_id` or `user_id`
+* **Impact**: 2.2% of orders excluded from Silver layer
+* **Root Cause**: Data quality filter (expected behavior)
+* **Status**: Validated, documented
 
-* **Orphan Products**: 3 products in silver_order_products do not exist in silver_products (documented data quality issue)
-* **Dropped Rows**: 3 rows from fact_order_product (orphan products filtered)
+### Data Quality Validation
 
-### Validation Results
+**Bronze Layer**:
+* ✓ Zero malformed CSV records (`_rescued_data` all NULL)
+* ✓ All source row counts match
 
-* **NULL Checks**: 0 NULLs in required fields (Silver layer)
-* **Primary Key Uniqueness**: 0 duplicates in all tables
-* **Referential Integrity**: 0 orphans in Gold dimensional model (orphan products removed)
-* **Fact Table Grain**: 0 duplicates at (order_id, product_id, add_to_cart_order) level
+**Silver Layer**:
+* ✓ Primary key uniqueness enforced (0 duplicates)
+* ✓ Type conversions successful (STRING → INT)
+* ✓ Referential integrity validated (3 orphans documented)
+
+**Gold Layer**:
+* ✓ Unity Catalog PK/FK constraints successfully applied
+* ✓ 0 orphans in fact table (3 filtered upstream)
+* ✓ All measures validated (reordered is 0/1, add_to_cart_order > 0)
 
 ---
 
-**Last Updated**: September 2, 2026  
-**Document Owner**: Tina (Cristina)  
-**Project**: Engineer Instacart
+**Last Updated**: 2026-09-04  
+**Data Dictionary Version**: 1.0 (workspace.instacart_gold implementation)  
+**Maintained By**: FTW Data Engineering Batch 12

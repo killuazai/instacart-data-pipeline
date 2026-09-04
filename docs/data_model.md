@@ -1,12 +1,12 @@
 # Data Model Documentation
 
-**Engineer Instacart — Dimensional Star Schema**
+**Instacart Data Engineering Pipeline — Dimensional Star Schema**
 
 ---
 
 ## 1. Business Process
 
-The data model represents the **Instacart online grocery purchasing process**, capturing customer orders and product purchases over time.
+The data model represents the **Instacart online grocery purchasing process**, capturing customer orders and product purchases.
 
 **Core Business Events:**
 * Customers place orders for grocery products
@@ -16,7 +16,6 @@ The data model represents the **Instacart online grocery purchasing process**, c
 * Customers may reorder products they've purchased before
 
 **Business Value:**
-Understanding purchasing patterns enables:
 * Product assortment optimization
 * Inventory planning
 * Marketing campaign targeting
@@ -30,58 +29,82 @@ Understanding purchasing patterns enables:
 **Methodology**: Star Schema (Kimball Methodology)
 
 **Design Goals:**
-* **Query Performance**: Denormalized dimensions for fast filtering and aggregation
+* **Query Performance**: Denormalized dimensions for fast aggregation
 * **Business Clarity**: Human-readable dimension attributes (day names, time buckets)
 * **Analytical Flexibility**: Support ad-hoc queries across all business dimensions
+* **Referential Integrity**: Unity Catalog PK/FK constraints
 * **Scalability**: 33.8M fact rows with optimized joins
 
 ---
 
 ## 3. Fact Table: `fact_order_product`
 
+**Catalog/Schema**: `workspace.instacart_gold`
+
 ### Grain
 
 **"One row represents one product in one order."**
 
-This is an **order line item** grain, the most atomic level of transactional data available.
+This is an **order line item** grain, the most atomic transactional level.
 
 ### Schema
 
 | Column | Data Type | Role | Description |
 |--------|-----------|------|-------------|
-| `order_id` | INT | PK/FK | Composite primary key, foreign key to dim_order |
-| `product_id` | INT | PK/FK | Composite primary key, foreign key to dim_product |
-| `add_to_cart_order` | INT | PK/Measure | Composite primary key, sequence number indicating when product was added to cart |
-| `reordered` | INT | Measure | Binary flag: 1 = customer reordered this product, 0 = first-time purchase |
+| `order_id` | INT | PK/FK | Composite PK component, FK to dim_order |
+| `product_id` | INT | FK | FK to dim_product |
+| `add_to_cart_order` | INT | PK/Measure | Composite PK component, cart sequence |
+| `reordered` | BOOLEAN | Measure | 1 = reorder, 0 = first-time purchase |
+| `user_id` | INT | Attribute | Denormalized customer identifier |
+| `source_system` | STRING | Lineage | 'prior' or 'train' |
+| `loaded_at` | TIMESTAMP | Metadata | Load timestamp |
 
 ### Primary Key
 
-* **Composite Natural Key**: (`order_id`, `product_id`, `add_to_cart_order`)
+* **Composite**: (`order_id`, `add_to_cart_order`)
+* **Unity Catalog Constraint**: `fact_order_product_pk`
+* **Rationale**: Uniquely identifies each product in each order
 
 ### Foreign Keys
 
-* `order_id` → `dim_order.order_id`
-* `product_id` → `dim_product.product_id`
+* **product_id → dim_product.product_id**
+  * **Unity Catalog Constraint**: `fact_order_product_product_fk`
+  * Ensures every product in an order exists in product dimension
+
+* **order_id → dim_order.order_id**
+  * **Unity Catalog Constraint**: `fact_order_product_order_fk`
+  * Ensures every order line item links to a valid order
 
 ### Measures
 
-1. **`add_to_cart_order`** (Semi-Additive)
-   * **Type**: Integer sequence (1, 2, 3...)
-   * **Business Meaning**: Position of product in shopping cart
-   * **Analysis Use**: Understand product priority in purchase decision
-   * **Aggregations**: MIN (first item), MAX (last item), AVG (average position)
+#### 1. `add_to_cart_order` (Semi-Additive)
+* **Type**: Integer sequence (1, 2, 3, ...)
+* **Business Meaning**: Position of product in shopping cart
+* **Analysis Use Cases**:
+  * Identify which products customers add first/last
+  * Understand product priority in purchase decision
+  * Analyze shopping cart build patterns
+* **Aggregations**: MIN (first item), MAX (last item), AVG (average position)
 
-2. **`reordered`** (Fully Additive)
-   * **Type**: Binary indicator (0 or 1)
-   * **Business Meaning**: Whether customer previously purchased this product
-   * **Analysis Use**: Calculate reorder rates, identify loyal customers, repeat purchase behavior
-   * **Aggregations**: SUM (reorder count), AVG (reorder rate), COUNT (total purchases)
+#### 2. `reordered` (Fully Additive)
+* **Type**: Boolean (TRUE/FALSE, stored as 1/0)
+* **Business Meaning**: Whether customer previously purchased this product
+* **Analysis Use Cases**:
+  * Calculate reorder rates by product, department, or customer
+  * Identify products with high customer loyalty
+  * Measure repeat purchase behavior
+  * Segment customers by reorder frequency
+* **Aggregations**:
+  * SUM(reordered) → total reorder count
+  * AVG(reordered) × 100 → reorder rate percentage
+  * COUNT(*) → total purchases
 
 ### Fact Table Statistics
 
 * **Row Count**: 33,819,103 order line items
 * **Distinct Orders**: 3,346,083
 * **Distinct Products**: 49,687
+* **Distinct Customers**: 206,209
 * **Average Items per Order**: ~10.1 products
 * **Overall Reorder Rate**: ~59%
 
@@ -91,7 +114,7 @@ This is an **order line item** grain, the most atomic level of transactional dat
 
 ### 4.1 `dim_product` — Product Dimension
 
-**Purpose**: Describes products with denormalized hierarchical attributes (department → aisle → product)
+**Catalog/Schema**: `workspace.instacart_gold`
 
 #### Grain
 
@@ -99,32 +122,55 @@ This is an **order line item** grain, the most atomic level of transactional dat
 
 #### Schema
 
-| Column | Data Type | Role | Description |
-|--------|-----------|------|-------------|
-| `product_id` | INT | PK | Primary key, original source product identifier |
-| `product_name` | STRING | Attribute | Full product name (e.g., "Organic Hass Avocado") |
-| `aisle_id` | INT | Attribute | Aisle identifier (foreign key concept, denormalized) |
-| `aisle_name` | STRING | Attribute | Aisle name (e.g., "fresh fruits") |
-| `department_id` | INT | Attribute | Department identifier (foreign key concept, denormalized) |
-| `department_name` | STRING | Attribute | Department name (e.g., "produce") |
+| Column | Data Type | Nullable | Description |
+|--------|-----------|----------|-------------|
+| `product_id` | INT | NOT NULL | Primary key |
+| `product_name` | STRING | Yes | Product name |
+| `aisle_id` | INT | Yes | Aisle identifier |
+| `aisle_name` | STRING | Yes | Aisle name (e.g., "fresh fruits") |
+| `department_id` | INT | Yes | Department identifier |
+| `department_name` | STRING | Yes | Department name (e.g., "produce") |
+| `product_hierarchy` | STRING | Yes | Concatenated: "department / aisle / product" |
+| `loaded_at` | TIMESTAMP | Yes | Load timestamp |
 
-#### Key Attributes
+#### Primary Key
 
-* **Product Hierarchy**: Department (21) → Aisle (134) → Product (49,687)
-* **Denormalization**: Aisle and department names included directly (no snowflake schema)
-* **Business Value**: Enables drill-down analysis (department → aisle → product)
+* **product_id** (Unity Catalog constraint: `dim_product_pk`)
+* **Uniqueness**: 49,687 distinct products
+* **Natural Key**: product_id (no surrogate key needed)
+
+#### Purpose
+
+Product dimension with **denormalized hierarchy** to support:
+* Filtering by department, aisle, or product
+* Drill-down analysis (department → aisle → product)
+* Product hierarchy navigation
+* Fast joins without additional lookups
+
+#### Product Hierarchy
+
+The `product_hierarchy` column provides a full breadcrumb path:
+
+**Example**: "produce / fresh fruits / Banana"
+
+**Benefits**:
+* Single-column search for hierarchy navigation
+* Simplified dashboard filters
+* Human-readable product context
 
 #### Statistics
 
-* **Row Count**: 49,687 products
-* **Departments**: 21 (e.g., produce, dairy eggs, snacks)
-* **Aisles**: 134 (e.g., fresh fruits, packaged cheese, energy granola bars)
+* **Total Products**: 49,687
+* **Departments**: 21
+* **Aisles**: 134
+* **Average Products per Aisle**: 371
+* **Average Products per Department**: 2,366
 
 ---
 
 ### 4.2 `dim_order` — Order Dimension
 
-**Purpose**: Describes orders with temporal and behavioral attributes
+**Catalog/Schema**: `workspace.instacart_gold`
 
 #### Grain
 
@@ -132,269 +178,354 @@ This is an **order line item** grain, the most atomic level of transactional dat
 
 #### Schema
 
-| Column | Data Type | Role | Description |
-|--------|-----------|------|-------------|
-| `order_id` | INT | PK | Primary key, original source order identifier |
-| `user_id` | INT | Attribute | Customer who placed the order |
-| `order_number` | INT | Attribute | Sequence number for this customer (1, 2, 3...) |
-| `order_dow` | INT | Attribute | Day of week (0=Sunday, 6=Saturday) |
-| `order_hour_of_day` | INT | Attribute | Hour of order (0-23) |
-| `days_since_prior_order` | DOUBLE | Attribute | Days elapsed since customer's previous order (NULL for first order) |
+| Column | Data Type | Nullable | Description |
+|--------|-----------|----------|-------------|
+| `order_id` | INT | NOT NULL | Primary key |
+| `user_id` | INT | Yes | Customer identifier |
+| `eval_set` | STRING | Yes | 'prior' or 'train' |
+| `order_number` | INT | Yes | Customer's order sequence (1, 2, 3, ...) |
+| `order_dow` | INT | Yes | Day of week (0=Sunday, 6=Saturday) |
+| `day_of_week_name` | STRING | Yes | 'Sunday', 'Monday', etc. |
+| `order_hour_of_day` | INT | Yes | Hour (0-23) |
+| `time_of_day_bucket` | STRING | Yes | 'Early Morning', 'Morning', etc. |
+| `days_since_prior_order` | DOUBLE | Yes | Days since last order (NULL for first) |
+| `loaded_at` | TIMESTAMP | Yes | Load timestamp |
 
-#### Key Attributes
+#### Primary Key
 
-* **Temporal Dimensions**: Day of week and hour enable time-based analysis
-* **Customer Journey**: `order_number` and `days_since_prior_order` track purchase cadence
+* **order_id** (Unity Catalog constraint: `dim_order_pk`)
+* **Uniqueness**: 3,346,083 distinct orders
+* **Natural Key**: order_id (no surrogate key needed)
+
+#### Purpose
+
+Order dimension with **temporal attributes** to support:
+* Time-based analysis (day of week, hour of day)
+* Customer order sequence tracking
+* Purchase frequency analysis
+* Temporal pattern identification
+
+#### Derived Attributes
+
+##### 1. `day_of_week_name`
+
+Derived from `order_dow`:
+
+| order_dow | day_of_week_name |
+|-----------|------------------|
+| 0 | Sunday |
+| 1 | Monday |
+| 2 | Tuesday |
+| 3 | Wednesday |
+| 4 | Thursday |
+| 5 | Friday |
+| 6 | Saturday |
+
+##### 2. `time_of_day_bucket`
+
+Derived from `order_hour_of_day`:
+
+| Hour Range | time_of_day_bucket |
+|------------|--------------------|
+| 0-5 | Early Morning |
+| 6-11 | Morning |
+| 12-17 | Afternoon |
+| 18-21 | Evening |
+| 22-23 | Night |
+
+**Benefits**:
+* Simplified temporal aggregation
+* Business-friendly time groupings
+* Dashboard filters for time periods
+
+#### Customer Attributes
+
+**Note**: This dimension includes customer-related attributes (`user_id`, `order_number`) but is **not** a separate customer dimension.
+
+**Design Decision**: Customer attributes are embedded in the order dimension because:
+* Orders are the primary grain of analysis
+* Customer metrics (total orders, frequency) can be derived via aggregation
+* Simplified star schema (2 dimensions + 1 fact)
+* Avoids multi-hop joins for common queries
+
+**Customer Analysis**:
+* Customer lifetime orders: `MAX(order_number) by user_id`
+* Purchase frequency: `AVG(days_since_prior_order) by user_id`
+* Customer segmentation: Aggregate order-level metrics
 
 #### Statistics
 
-* **Row Count**: 3,346,083 orders
-* **Peak Day**: Sunday (~585K orders)
-* **Peak Hour**: 10-11 AM and 2-3 PM
+* **Total Orders**: 3,346,083
+* **Unique Customers**: 206,209
+* **Average Orders per Customer**: ~16.2
+* **Average Days Between Orders**: ~17.1 days
+* **Peak Order Hour**: 10 AM
+* **Peak Order Day**: Sunday
 
 ---
 
-## 5. Star Schema Diagram
+## 5. Star Schema Relationships
+
+### Entity-Relationship Diagram
 
 ```
-                        dim_product                         dim_order
-            (49,687 products)                  (3.3M orders)
-          +-------------------+              +-------------------+
-          | product_id (PK)   |              | order_id (PK)     |
-          | product_name      |              | user_id           |
-          | aisle_name        |              | order_number      |
-          | department_name   |              | order_dow         |
-          +-------------------+              | order_hour_of_day |
-                     |                       +-------------------+
-                     | product_id (FK)                 |
-                     |                                 | order_id (FK)
-                     v                                 v
-
-                          fact_order_product
-                          (33.8M line items)
-                     +---------------------------+
-                     | order_id (PK/FK)          |
-                     | product_id (PK/FK)        |
-                     | add_to_cart_order (PK)    |
-                     | reordered                 |
-                     +---------------------------+
+           dim_product
+           ┌───────────────────────────┐
+           │ PK: product_id            │
+           │ product_name              │
+           │ aisle_name                │
+           │ department_name           │
+           │ product_hierarchy         │
+           └───────────────────────────┘
+                       │
+                       │ 1
+                       │
+                       │ product_id (FK)
+                       │
+                       │ N
+                       ▼
+        fact_order_product
+        ┌───────────────────────────────────┐
+        │ PK: (order_id, add_to_cart_order) │
+        │ FK: product_id                    │
+        │ FK: order_id                      │
+        │ Measures:                         │
+        │  - add_to_cart_order              │
+        │  - reordered                      │
+        └───────────────────────────────────┘
+                       ▲
+                       │ N
+                       │
+                       │ order_id (FK)
+                       │
+                       │ 1
+                       │
+            dim_order
+            ┌──────────────────────────┐
+            │ PK: order_id             │
+            │ user_id                  │
+            │ day_of_week_name         │
+            │ time_of_day_bucket       │
+            │ order_number             │
+            └──────────────────────────┘
 ```
 
-### Relationships
+### Relationship Cardinalities
 
-* **fact_order_product** → **dim_product**: Many-to-One (product_id)
-* **fact_order_product** → **dim_order**: Many-to-One (order_id)
+#### `fact_order_product` ← `dim_product`
 
----
+* **Type**: Many-to-One
+* **Cardinality**: Many fact rows → One product
+* **Business Rule**: Each order line item references exactly one product
+* **Enforcement**: Unity Catalog FK constraint `fact_order_product_product_fk`
 
-## 6. Dimensional Model Integrity
+#### `fact_order_product` ← `dim_order`
 
-### Referential Integrity
+* **Type**: Many-to-One
+* **Cardinality**: Many fact rows → One order
+* **Business Rule**: Each order line item belongs to exactly one order
+* **Enforcement**: Unity Catalog FK constraint `fact_order_product_order_fk`
 
-All foreign keys in `fact_order_product` have corresponding records in dimension tables:
+### Join Patterns
 
-* **fact → dim_product**: 0 orphans (✓)
-* **fact → dim_order**: 0 orphans (✓)
-
-### Primary Key Uniqueness
-
-All dimension primary keys are unique:
-
-* **dim_product.product_id**: 49,687 unique values (✓)
-* **dim_order.order_id**: 3,346,083 unique values (✓)
-
-### Fact Table Grain Uniqueness
-
-The composite natural key (`order_id`, `product_id`, `add_to_cart_order`) is unique across all 33.8M rows (✓)
-
----
-
-## 7. Modeling Decisions
-
-### Why Star Schema?
-
-**Decision**: Use star schema (not snowflake schema)
-
-**Rationale:**
-* **Query Performance**: Denormalized dimensions reduce join complexity
-* **Simplicity**: Business users can understand flat dimension tables
-* **Flexibility**: Product hierarchy (department/aisle) is stable and not deeply nested
-
-**Trade-off**: Some data redundancy (aisle_name repeated for each product) in exchange for performance
-
----
-
-### Why This Fact Table Grain?
-
-**Decision**: Order line item grain (one row per product per order)
-
-**Rationale:**
-* **Most Atomic**: Preserves maximum analytical flexibility
-* **Supports All BQs**: Can aggregate up to any level (product, order, customer, department)
-* **Market Basket Analysis**: Enables product pair analysis (self-join on order_key)
-* **Time Series**: Enables temporal analysis by order date/time
-
-**Alternative Considered**: Order header grain (one row per order) — rejected because it loses product-level detail
-
----
-
-### Why Denormalize Product Hierarchy?
-
-**Decision**: Include aisle_name and department_name in `dim_product`
-
-**Rationale:**
-* **Query Simplicity**: Single JOIN to get full product context (no snowflake)
-* **Business Clarity**: Users see "produce" instead of department_id=4
-* **Performance**: Avoids additional JOINs to aisle/department lookup tables
-
-**Trade-off**: Redundancy (aisle names repeated) vs. performance and simplicity
-
----
-
-### Why Composite Natural Key?
-
-**Decision**: Use composite natural key (`order_id`, `product_id`, `add_to_cart_order`) instead of surrogate key
-
-**Rationale:**
-* **Simplicity**: Natural keys directly from source system
-* **Referential Integrity**: Easy to validate and trace back to source
-* **No Extra Column**: Saves storage compared to adding a surrogate key
-
-**Trade-off**: Composite keys require multi-column joins, but this is acceptable for performance with proper indexing
-
----
-
-## 8. How the Model Answers Business Questions
-
-### BQ1: Which products and departments are purchased most frequently?
+#### Standard Analytics Query
 
 ```sql
 SELECT 
-  p.department_name,
-  p.product_name,
-  COUNT(*) AS total_orders,
-  AVG(CAST(f.reordered AS DOUBLE)) * 100 AS reorder_rate_pct
-FROM fact_order_product f
-JOIN dim_product p ON f.product_id = p.product_id
-GROUP BY p.department_name, p.product_name
-ORDER BY total_orders DESC;
-```
-
-**Model Support**:
-* `dim_product` provides department/product names
-* `fact_order_product` provides purchase transactions
-* `reordered` measure calculates reorder rate
-
----
-
-### BQ2: How does purchasing behavior change by day and hour?
-
-```sql
-SELECT 
-  o.order_dow,
-  o.order_hour_of_day,
-  COUNT(DISTINCT f.order_id) AS total_orders,
-  COUNT(*) / COUNT(DISTINCT f.order_id) AS avg_items_per_order
-FROM fact_order_product f
-JOIN dim_order o ON f.order_id = o.order_id
-GROUP BY o.order_dow, o.order_hour_of_day
-ORDER BY o.order_dow, o.order_hour_of_day;
-```
-
-**Model Support**:
-* `dim_order` provides temporal attributes (day, hour)
-* `fact_order_product` provides order-level transactions
-
----
-
-### BQ3: Which products have the highest reorder behavior?
-
-```sql
-SELECT 
-  p.product_name,
+  dp.department_name,
+  dp.aisle_name,
+  do.day_of_week_name,
   COUNT(*) AS total_purchases,
-  SUM(CAST(f.reordered AS INT)) AS reorder_count,
-  ROUND(SUM(CAST(f.reordered AS INT)) * 100.0 / COUNT(*), 2) AS reorder_rate_pct
-FROM fact_order_product f
-JOIN dim_product p ON f.product_id = p.product_id
-GROUP BY p.product_name
-HAVING COUNT(*) >= 100
-ORDER BY reorder_rate_pct DESC;
+  COUNT(DISTINCT f.order_id) AS total_orders,
+  COUNT(DISTINCT do.user_id) AS unique_customers,
+  AVG(CAST(f.reordered AS INT)) * 100 AS reorder_rate_pct
+FROM workspace.instacart_gold.fact_order_product f
+INNER JOIN workspace.instacart_gold.dim_product dp 
+  ON f.product_id = dp.product_id
+INNER JOIN workspace.instacart_gold.dim_order do 
+  ON f.order_id = do.order_id
+GROUP BY dp.department_name, dp.aisle_name, do.day_of_week_name;
 ```
 
-**Model Support**:
-* `reordered` measure directly supports reorder rate calculation
-* `dim_product` provides product context
-
----
-
-### BQ4: What are the most common product pairs?
+#### Customer Analysis Query
 
 ```sql
 SELECT 
-  p1.product_name AS product_1,
-  p2.product_name AS product_2,
-  COUNT(DISTINCT f1.order_id) AS orders_with_both
-FROM fact_order_product f1
-JOIN fact_order_product f2 ON f1.order_id = f2.order_id
-  AND f1.product_id < f2.product_id
-JOIN dim_product p1 ON f1.product_id = p1.product_id
-JOIN dim_product p2 ON f2.product_id = p2.product_id
-GROUP BY p1.product_name, p2.product_name
-HAVING COUNT(DISTINCT f1.order_id) >= 100
-ORDER BY orders_with_both DESC;
+  do.user_id,
+  COUNT(DISTINCT do.order_id) AS total_orders,
+  MAX(do.order_number) AS order_sequence_length,
+  AVG(do.days_since_prior_order) AS avg_days_between_orders,
+  COUNT(DISTINCT f.product_id) AS unique_products_purchased,
+  AVG(CAST(f.reordered AS INT)) * 100 AS customer_reorder_rate
+FROM workspace.instacart_gold.dim_order do
+INNER JOIN workspace.instacart_gold.fact_order_product f 
+  ON do.order_id = f.order_id
+GROUP BY do.user_id;
 ```
 
-**Model Support**:
-* Order line item grain enables self-join on `order_id`
-* `dim_product` provides product names for both items
+---
+
+## 6. Business Questions Supported
+
+### Question 1: Which products and departments are purchased most frequently?
+
+**Dimensions Used**: `dim_product` (department_name, product_name)
+
+**Measures Used**: COUNT(*), COUNT(DISTINCT order_id), reordered
+
+**Query Pattern**: Aggregate fact by product dimension, order by purchase count
+
+### Question 2: How does customer purchasing behavior change by day of week and hour of day?
+
+**Dimensions Used**: `dim_order` (day_of_week_name, order_hour_of_day, time_of_day_bucket)
+
+**Measures Used**: COUNT(DISTINCT order_id), COUNT(*), AVG(items per order)
+
+**Query Pattern**: Aggregate fact by temporal dimensions
+
+### Question 3: Which products have the highest reorder behavior?
+
+**Dimensions Used**: `dim_product` (product_name, department_name)
+
+**Measures Used**: SUM(reordered), AVG(reordered), COUNT(*)
+
+**Query Pattern**: Aggregate reordered measure by product
+
+### Question 4: What are common product pairs purchased together? (Future)
+
+**Dimensions Used**: `dim_product` (for both products in the pair)
+
+**Measures Used**: COUNT(DISTINCT order_id) where both products exist
+
+**Query Pattern**: Self-join fact table on order_id, aggregate by product pairs
 
 ---
 
-## 9. Model Evolution and Future Enhancements
+## 7. Data Quality & Integrity
 
-### Potential Enhancements
+### Unity Catalog Constraints
 
-1. **Date Dimension** (`dim_date`)
-   * Add proper date dimension with fiscal calendar, holidays, week-of-year
-   * Current: Order dimension has temporal attributes but no true date key
+**Primary Keys**:
+* `dim_product.product_id` → Enforced, 0 duplicates ✓
+* `dim_order.order_id` → Enforced, 0 duplicates ✓
+* `fact_order_product (order_id, add_to_cart_order)` → Enforced, 0 duplicates ✓
 
-2. **Slowly Changing Dimensions** (SCD)
-   * Track product name changes, department reassignments over time
-   * Current: Dimensions are Type 1 (overwrite)
+**Foreign Keys**:
+* `fact_order_product.product_id → dim_product.product_id` → Enforced, 0 orphans ✓
+* `fact_order_product.order_id → dim_order.order_id` → Enforced, 0 orphans ✓
 
-3. **Aggregate Fact Tables**
-   * Daily/weekly product sales summaries for faster reporting
-   * Current: Pre-aggregated analytics tables (`gold_*`) serve this purpose
+### Validation Results
 
-4. **Customer Dimension**
-   * Add dedicated customer dimension with behavioral metrics
-   * Current: Customer attributes embedded in dim_order
+**Row Count Integrity**:
+```
+Silver → Gold Reconciliation:
+  silver_products (49,687) → dim_product (49,687) ✓
+  silver_orders (3,346,083) → dim_order (3,346,083) ✓
+  silver_order_products (33,819,106) → fact_order_product (33,819,103) ⚠ (3 orphans filtered)
+```
 
-5. **Additional Measures**
-   * Product price, order total, discount amount (if source data becomes available)
-   * Current: Only count-based metrics (orders, reorders)
+**Referential Integrity**:
+* All fact rows successfully join to both dimensions ✓
+* 3 orphan products filtered upstream (documented data quality issue)
 
-6. **Conformed Dimensions**
-   * If additional fact tables are added (e.g., inventory, promotions)
-   * Share `dim_product`, `dim_order` across facts
-
----
-
-## 10. Model Validation Checklist
-
-✅ **Fact table grain is clearly defined**: One row per product per order  
-✅ **Primary keys are unique**: All dimension PKs have no duplicates  
-✅ **Foreign keys are valid**: All fact FKs have matching dimension records  
-✅ **Measures are additive or semi-additive**: `reordered` additive, `add_to_cart_order` semi-additive  
-✅ **Dimensions are denormalized**: Product hierarchy flattened into dim_product  
-✅ **Business-friendly attributes**: Product hierarchies, temporal dimensions  
-✅ **Model answers all business questions**: BQ1-BQ4 fully supported  
-✅ **Performance optimized**: Simplified 3-table star schema  
-✅ **Documented and validated**: All tables documented with row counts and data quality checks  
+**Measure Validation**:
+* `reordered`: All values are 0 or 1 ✓
+* `add_to_cart_order`: All values > 0 ✓
+* No NULL values in primary key columns ✓
 
 ---
 
-**Last Updated**: September 2, 2026  
-**Document Owner**: Tina (Cristina)  
-**Project**: Engineer Instacart
+## 8. Design Decisions
+
+### Decision 1: Composite Primary Key in Fact Table
+
+**Choice**: (`order_id`, `add_to_cart_order`) vs. surrogate key
+
+**Rationale**:
+* Natural composite key uniquely identifies each order line item
+* Avoids unnecessary surrogate key generation
+* Preserves semantic meaning in primary key
+* `add_to_cart_order` serves dual purpose: PK component + measure
+
+### Decision 2: No Separate Customer Dimension
+
+**Choice**: Embed customer attributes in `dim_order` vs. create `dim_customer`
+
+**Rationale**:
+* Orders are the primary analysis grain
+* Customer metrics easily derived via aggregation
+* Avoids multi-hop joins for common queries
+* Simplified star schema (2 dimensions instead of 3)
+
+**Trade-off**: Repeats `user_id` across multiple orders, but:
+* Storage cost is minimal (INT column)
+* Query performance is faster (no additional join)
+* Can be refactored to separate dimension in Phase 2
+
+### Decision 3: Denormalized Product Hierarchy
+
+**Choice**: Embed aisle/department names in `dim_product` vs. snowflake schema
+
+**Rationale**:
+* Faster queries (no joins to aisle/department tables)
+* Simplified dashboard design
+* Aisle/department are descriptive, not frequently updated
+* Star schema best practice (denormalize dimensions)
+
+### Decision 4: Derived Temporal Attributes
+
+**Choice**: Pre-compute `day_of_week_name` and `time_of_day_bucket` vs. compute at query time
+
+**Rationale**:
+* Improved query performance (no CASE statements in every query)
+* Business-friendly column names
+* Consistent bucketing logic across all queries
+* Simplified dashboard filters
+
+---
+
+## 9. Future Enhancements
+
+### Phase 2: Dimensional Model Evolution
+
+#### Add `dim_date` Dimension
+* Date key (YYYYMMDD)
+* Fiscal calendar attributes
+* Holiday indicators
+* Week/month/quarter hierarchies
+
+#### Split Customer Dimension
+* Create `dim_customer` separate from orders
+* Add customer lifetime metrics
+* Implement SCD Type 2 for customer segmentation changes
+
+#### Aggregate Fact Tables
+* Daily/monthly aggregates for dashboard performance
+* Pre-compute reorder rates by product/customer
+* Market basket analysis (product pairs)
+
+### Phase 3: Advanced Analytics
+
+* Implement SCD Type 2 for product price tracking
+* Add product lifecycle attributes (new/mature/declining)
+* Customer RFM (Recency, Frequency, Monetary) segmentation
+* Predictive measures (propensity to reorder)
+
+---
+
+## 10. Star Schema Best Practices Applied
+
+✓ **Fact Grain Clearly Defined**: Order line item (one product per order)  
+✓ **Additive Measures**: `reordered` is fully additive  
+✓ **Denormalized Dimensions**: Product hierarchy embedded  
+✓ **Surrogate vs. Natural Keys**: Natural keys used where appropriate  
+✓ **Slowly Changing Dimensions**: Not needed (no historical changes)  
+✓ **Referential Integrity**: Unity Catalog constraints enforced  
+✓ **Conformed Dimensions**: Dimensions can be reused across multiple fact tables  
+✓ **Business-Friendly Naming**: Readable column names and derived attributes  
+
+---
+
+**Last Updated**: 2026-09-04  
+**Data Model Version**: 1.0 (workspace.instacart_gold implementation)  
+**Maintained By**: FTW Data Engineering Batch 12
