@@ -189,7 +189,7 @@ SELECT
     (SELECT COUNT(*) FROM instacart_bronze.order_products_train) = 
     (SELECT COUNT(*) FROM instacart_silver.order_products)
   THEN 'PASS' ELSE 'FAIL' END AS reconciliation_status;
--- Expected: bronze_total = silver_total = 33,819,103
+-- Expected: bronze_total = silver_total = 33,819,106
 ```
 
 **Exception Handling**: If rows are intentionally filtered (e.g., invalid records), document the exclusion logic and count.
@@ -848,7 +848,7 @@ FROM instacart_gold.gold_temporal_patterns;
 
 | Layer / Query | Check | Expected | Actual | Status | Owner | Date |
 |---|---|---|---|---|---|---|
-| Silver / order_products | Bronze → Silver row count | 33,819,103 | [TBD] | PENDING | Tina | [TBD] |
+| Silver / order_products | Bronze → Silver row count | 33,819,106 | [TBD] | PENDING | Tina | [TBD] |
 | Silver / order_products | Null foreign keys | 0 | [TBD] | PENDING | Tina | [TBD] |
 | Silver / order_products | Duplicate (order_id, product_id) | 0 | [TBD] | PENDING | Tina | [TBD] |
 | Silver / orders | Invalid order_hour_of_day | 0 | [TBD] | PENDING | Tina | [TBD] |

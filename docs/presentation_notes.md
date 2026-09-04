@@ -35,13 +35,13 @@ CSV (6 files) → BRONZE → SILVER → GOLD → DASHBOARD
 
 ### Show:
 ```
-     dim_products (49K)
+     dim_product (49K)
             |
             ↓
-    fact_order_items (33.8M)
-         ↑         ↑
-         |         |
-dim_orders (3.3M)  dim_customers (206K)
+    fact_order_product (33.8M)
+         ↑
+         |
+    dim_order (3.3M)
 ```
 
 **Key Point:** This grain supports all business questions—product analysis, temporal patterns, reorder behavior, and market basket analysis.
