@@ -5,7 +5,7 @@
 -- ============================================================
 
 USE CATALOG workspace;
-USE SCHEMA instacart_gold;
+USE SCHEMA instacart_analytics;
 
 
 -- ============================================================
